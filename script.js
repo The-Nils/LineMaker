@@ -249,8 +249,9 @@ class PenPlotterConverter {
   <g id="pen-plotter-lines" stroke="black" fill="none" stroke-linecap="round" stroke-linejoin="round">
 `;
 
-        // Clear G-code lines array
+        // Clear G-code lines array and create segments collection
         this.gcodeLines = [];
+        this.allSegments = [];
 
         // Convert angle to radians
         const angleRad = (lineAngle * Math.PI) / 180;
@@ -288,6 +289,9 @@ class PenPlotterConverter {
                 );
             }
         }
+
+        // Merge contiguous segments into paths
+        this.mergeContiguousSegments();
 
         this.svgContent += `  </g>
 </svg>`;
@@ -376,7 +380,7 @@ class PenPlotterConverter {
         const lineGroups = [];
         let currentGroup = null;
 
-        intensities.forEach((point, index) => {
+        intensities.forEach((point) => {
             const lineCount = Math.ceil(5 * point.intensity);
             
             if (!currentGroup || currentGroup.lineCount !== lineCount) {
@@ -460,21 +464,13 @@ class PenPlotterConverter {
                 this.outputCtx.lineTo(lineEndX, lineEndY);
                 this.outputCtx.stroke();
 
-                // Add straight line to SVG with proper formatting
-                this.svgContent += `    <line x1="${lineStartX.toFixed(3)}" y1="${lineStartY.toFixed(3)}" x2="${lineEndX.toFixed(3)}" y2="${lineEndY.toFixed(3)}" stroke-width="${penWidthPx.toFixed(3)}"/>
-`;
-
-                // Add line to G-code (convert pixels to mm)
-                const gcodeX1 = (lineStartX / this.pixelsPerMm).toFixed(3);
-                const gcodeY1 = (lineStartY / this.pixelsPerMm).toFixed(3);
-                const gcodeX2 = (lineEndX / this.pixelsPerMm).toFixed(3);
-                const gcodeY2 = (lineEndY / this.pixelsPerMm).toFixed(3);
-                
-                this.gcodeLines.push({
-                    x1: parseFloat(gcodeX1),
-                    y1: parseFloat(gcodeY1),
-                    x2: parseFloat(gcodeX2),
-                    y2: parseFloat(gcodeY2)
+                // Collect segment for later merging (in pixels)
+                this.allSegments.push({
+                    x1: lineStartX,
+                    y1: lineStartY,
+                    x2: lineEndX,
+                    y2: lineEndY,
+                    strokeWidth: penWidthPx
                 });
             }
         });
@@ -498,6 +494,124 @@ class PenPlotterConverter {
         }
 
         return sampleCount > 0 ? totalIntensity / sampleCount : 0;
+    }
+
+    mergeContiguousSegments() {
+        // Group segments by stroke width
+        const segmentsByWidth = {};
+        this.allSegments.forEach(segment => {
+            const key = segment.strokeWidth.toFixed(3);
+            if (!segmentsByWidth[key]) {
+                segmentsByWidth[key] = [];
+            }
+            segmentsByWidth[key].push(segment);
+        });
+
+        // Process each stroke width group separately
+        Object.keys(segmentsByWidth).forEach(strokeWidth => {
+            const segments = segmentsByWidth[strokeWidth];
+            const mergedPaths = this.findContiguousPaths(segments);
+            
+            // Add merged paths to SVG and G-code
+            mergedPaths.forEach(path => {
+                if (path.points.length === 2) {
+                    // Simple line
+                    this.svgContent += `    <line x1="${path.points[0].x.toFixed(3)}" y1="${path.points[0].y.toFixed(3)}" x2="${path.points[1].x.toFixed(3)}" y2="${path.points[1].y.toFixed(3)}" stroke-width="${strokeWidth}"/>
+`;
+                } else if (path.points.length > 2) {
+                    // Polyline for multiple connected points
+                    const pointsStr = path.points.map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(' ');
+                    this.svgContent += `    <polyline points="${pointsStr}" stroke-width="${strokeWidth}"/>
+`;
+                }
+
+                // Convert path to G-code segments
+                for (let i = 0; i < path.points.length - 1; i++) {
+                    const p1 = path.points[i];
+                    const p2 = path.points[i + 1];
+                    this.gcodeLines.push({
+                        x1: (p1.x / this.pixelsPerMm),
+                        y1: (p1.y / this.pixelsPerMm),
+                        x2: (p2.x / this.pixelsPerMm),
+                        y2: (p2.y / this.pixelsPerMm),
+                        isFirstInPath: i === 0,
+                        isLastInPath: i === path.points.length - 2
+                    });
+                }
+            });
+        });
+    }
+
+    findContiguousPaths(segments) {
+        const paths = [];
+        const used = new Set();
+        const tolerance = 0.1; // Pixel tolerance for connection detection
+
+        segments.forEach((segment, index) => {
+            if (used.has(index)) return;
+
+            const path = {
+                points: [
+                    { x: segment.x1, y: segment.y1 },
+                    { x: segment.x2, y: segment.y2 }
+                ]
+            };
+            used.add(index);
+
+            // Try to extend the path in both directions
+            let extended = true;
+            while (extended) {
+                extended = false;
+                
+                // Try to extend from the end
+                const endPoint = path.points[path.points.length - 1];
+                for (let i = 0; i < segments.length; i++) {
+                    if (used.has(i)) continue;
+                    const seg = segments[i];
+                    
+                    if (this.pointsEqual(endPoint, { x: seg.x1, y: seg.y1 }, tolerance)) {
+                        path.points.push({ x: seg.x2, y: seg.y2 });
+                        used.add(i);
+                        extended = true;
+                        break;
+                    } else if (this.pointsEqual(endPoint, { x: seg.x2, y: seg.y2 }, tolerance)) {
+                        path.points.push({ x: seg.x1, y: seg.y1 });
+                        used.add(i);
+                        extended = true;
+                        break;
+                    }
+                }
+
+                // Try to extend from the beginning
+                if (!extended) {
+                    const startPoint = path.points[0];
+                    for (let i = 0; i < segments.length; i++) {
+                        if (used.has(i)) continue;
+                        const seg = segments[i];
+                        
+                        if (this.pointsEqual(startPoint, { x: seg.x1, y: seg.y1 }, tolerance)) {
+                            path.points.unshift({ x: seg.x2, y: seg.y2 });
+                            used.add(i);
+                            extended = true;
+                            break;
+                        } else if (this.pointsEqual(startPoint, { x: seg.x2, y: seg.y2 }, tolerance)) {
+                            path.points.unshift({ x: seg.x1, y: seg.y1 });
+                            used.add(i);
+                            extended = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            paths.push(path);
+        });
+
+        return paths;
+    }
+
+    pointsEqual(p1, p2, tolerance) {
+        return Math.abs(p1.x - p2.x) <= tolerance && Math.abs(p1.y - p2.y) <= tolerance;
     }
 
     downloadSVG() {
@@ -544,28 +658,30 @@ class PenPlotterConverter {
         let currentY = 0;
         let penIsDown = false;
 
-        // Process each line
+        // Process each line, taking advantage of path information
         this.gcodeLines.forEach((line) => {
-            // Move to start position if needed
+            // Move to start position if needed (only if not continuing a path)
             if (currentX !== line.x1 || currentY !== line.y1) {
                 if (penIsDown) {
                     gcode += `G0 Z${penUpZ} ; Pen up\n`;
                     penIsDown = false;
                 }
-                gcode += `G0 X${line.x1} Y${line.y1} ; Move to start\n`;
+                gcode += `G0 X${line.x1.toFixed(3)} Y${line.y1.toFixed(3)} ; Move to start\n`;
                 currentX = line.x1;
                 currentY = line.y1;
             }
 
-            // Pen down and draw line
+            // Pen down (only at start of new paths)
             if (!penIsDown) {
                 gcode += `G1 Z${penDownZ} ; Pen down\n`;
                 penIsDown = true;
             }
             
-            gcode += `G1 X${line.x2} Y${line.y2} ; Draw line\n`;
+            gcode += `G1 X${line.x2.toFixed(3)} Y${line.y2.toFixed(3)} ; Draw line\n`;
             currentX = line.x2;
             currentY = line.y2;
+
+            // Keep pen down for continuous paths (pen only lifts when we need to move to a disconnected segment)
         });
 
         // Footer
