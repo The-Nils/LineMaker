@@ -1,15 +1,23 @@
 class PenPlotterConverter {
   constructor() {
     this.originalCanvas = document.createElement("canvas"); // Hidden canvas for processing
-    this.outputSvg = document.getElementById("outputSvg");
-    this.linesGroup = document.getElementById("pen-plotter-lines");
     this.originalCtx = this.originalCanvas.getContext("2d");
     this.thumbnail = document.getElementById("imageThumbnail");
     this.imageData = null;
     this.originalImage = null;
-    this.svgContent = "";
-    this.gcodeLines = []; // Store G-code line commands
     this.pixelsPerMm = 96 / 25.4; // Standard web DPI conversion
+
+    // CMYK channel data
+    this.channels = {
+      C: { svg: document.getElementById("outputSvgC"), group: document.getElementById("pen-plotter-lines-C"), svgContent: "", gcodeLines: [], color: "#00FFFF" },
+      M: { svg: document.getElementById("outputSvgM"), group: document.getElementById("pen-plotter-lines-M"), svgContent: "", gcodeLines: [], color: "#FF00FF" },
+      Y: { svg: document.getElementById("outputSvgY"), group: document.getElementById("pen-plotter-lines-Y"), svgContent: "", gcodeLines: [], color: "#FFFF00" },
+      K: { svg: document.getElementById("outputSvgK"), group: document.getElementById("pen-plotter-lines-K"), svgContent: "", gcodeLines: [], color: "#000000" }
+    };
+
+    // Chunked processing state
+    this.isProcessing = false;
+    this.processingCancelled = false;
 
     this.setupEventListeners();
     this.updateSvgSize();
@@ -31,29 +39,45 @@ class PenPlotterConverter {
       if (this.originalImage) this.redrawImage();
     });
     this.setupNumberInput("penDiameterValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("lineAngleValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("sectionWidthValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("lineSpacingValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("minLineLengthValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("contrastValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("maxMergeDistanceValue", () => {
+      this.cancelProcessing();
       if (this.imageData) this.processImage();
     });
     this.setupNumberInput("feedRateValue", () => {});
     this.setupNumberInput("penDownZValue", () => {});
     this.setupNumberInput("penUpZValue", () => {});
+
+    // CMYK channel checkboxes
+    ["C", "M", "Y", "K"].forEach(channel => {
+      document.getElementById(`enable${channel}`).addEventListener("change", () => {
+        this.updateChannelVisibility();
+        this.cancelProcessing();
+        if (this.imageData) this.processImage();
+      });
+    });
 
     // Setup zoom controls
     this.syncInputs("canvasZoom", "canvasZoomValue");
@@ -72,6 +96,16 @@ class PenPlotterConverter {
       .addEventListener("click", () => {
         this.downloadGcode();
       });
+
+    // Individual channel download buttons
+    ["C", "M", "Y", "K"].forEach(channel => {
+      document.getElementById(`download${channel}Btn`).addEventListener("click", () => {
+        this.downloadChannelSVG(channel);
+      });
+      document.getElementById(`download${channel}GcodeBtn`).addEventListener("click", () => {
+        this.downloadChannelGcode(channel);
+      });
+    });
   }
 
   setupNumberInput(inputId, callback) {
@@ -117,12 +151,18 @@ class PenPlotterConverter {
     this.originalCanvas.width = widthPx;
     this.originalCanvas.height = heightPx;
 
-    // Update SVG viewBox and size
-    this.outputSvg.setAttribute("viewBox", `0 0 ${widthPx} ${heightPx}`);
-    this.outputSvg.setAttribute("width", widthMm + "mm");
-    this.outputSvg.setAttribute("height", heightMm + "mm");
-    this.outputSvg.style.width = widthPx + "px";
-    this.outputSvg.style.height = heightPx + "px";
+    // Update all channel SVGs
+    Object.keys(this.channels).forEach(channel => {
+      const channelData = this.channels[channel];
+      channelData.svg.setAttribute("viewBox", `0 0 ${widthPx} ${heightPx}`);
+      channelData.svg.setAttribute("width", widthMm + "mm");
+      channelData.svg.setAttribute("height", heightMm + "mm");
+      channelData.svg.style.width = widthPx + "px";
+      channelData.svg.style.height = heightPx + "px";
+      
+      // Clear SVG lines
+      channelData.group.innerHTML = "";
+    });
 
     // Apply zoom
     this.updateSvgZoom();
@@ -130,20 +170,18 @@ class PenPlotterConverter {
     // Clear canvas with white background for image processing
     this.originalCtx.fillStyle = "white";
     this.originalCtx.fillRect(0, 0, widthPx, heightPx);
-    
-    // Clear SVG lines
-    this.linesGroup.innerHTML = "";
   }
 
   updateSvgZoom() {
-    if (!this.outputSvg || !this.outputSvg.parentElement) return;
+    const kSvg = this.channels.K.svg;
+    if (!kSvg || !kSvg.parentElement) return;
 
     // Get current zoom value
     const zoom =
       parseFloat(document.getElementById("canvasZoomValue").value) || 1;
 
     // Calculate auto-fit scale to prevent SVG from being too big by default
-    const previewContainer = this.outputSvg.parentElement;
+    const previewContainer = kSvg.parentElement.parentElement; // svg-stack -> preview-area
     const containerWidth = previewContainer.clientWidth - 40;
     const containerHeight = previewContainer.clientHeight - 40;
 
@@ -155,9 +193,9 @@ class PenPlotterConverter {
     }
 
     const svgWidth =
-      parseInt(this.outputSvg.style.width) || 200;
+      parseInt(kSvg.style.width) || 200;
     const svgHeight =
-      parseInt(this.outputSvg.style.height) || 200;
+      parseInt(kSvg.style.height) || 200;
 
     // Make sure SVG has dimensions
     if (svgWidth <= 0 || svgHeight <= 0) return;
@@ -168,8 +206,36 @@ class PenPlotterConverter {
 
     // Apply both auto-fit and user zoom
     const finalScale = autoFitScale * zoom;
-    this.outputSvg.style.transformOrigin = "center center";
-    this.outputSvg.style.transform = `scale(${finalScale})`;
+    Object.keys(this.channels).forEach(channel => {
+      const channelSvg = this.channels[channel].svg;
+      channelSvg.style.transformOrigin = "center center";
+      channelSvg.style.transform = `translateX(-50%) scale(${finalScale})`;
+    });
+  }
+
+  updateChannelVisibility() {
+    ["C", "M", "Y", "K"].forEach(channel => {
+      const isEnabled = document.getElementById(`enable${channel}`).checked;
+      const channelSvg = this.channels[channel].svg;
+      channelSvg.style.display = isEnabled ? "block" : "none";
+      
+      // Update download buttons
+      document.getElementById(`download${channel}Btn`).disabled = !isEnabled;
+      document.getElementById(`download${channel}GcodeBtn`).disabled = !isEnabled;
+    });
+  }
+
+  showProgress(text = "Processing...") {
+    document.getElementById("progressIndicator").style.display = "flex";
+    document.querySelector(".progress-text").textContent = text;
+  }
+
+  hideProgress() {
+    document.getElementById("progressIndicator").style.display = "none";
+  }
+
+  updateProgress(text) {
+    document.querySelector(".progress-text").textContent = text;
   }
 
   loadImage(file) {
@@ -282,67 +348,100 @@ class PenPlotterConverter {
     this.processImage();
   }
 
-  processImage() {
-    if (!this.imageData) return;
+  async processImage() {
+    if (!this.imageData || this.isProcessing) return;
 
+    this.isProcessing = true;
+    this.processingCancelled = false;
+    this.showProgress("Initializing...");
     this.showStatus("Converting to line art...", "processing");
 
-    const penDiameter = parseFloat(
-      document.getElementById("penDiameterValue").value
-    );
-    const lineAngle = parseInt(document.getElementById("lineAngleValue").value);
-    const sectionWidth = parseFloat(
-      document.getElementById("sectionWidthValue").value
-    );
-    const contrast = parseFloat(document.getElementById("contrastValue").value);
-    const canvasWidthMm = parseFloat(
-      document.getElementById("canvasWidthValue").value
-    );
-    const canvasHeightMm = parseFloat(
-      document.getElementById("canvasHeightValue").value
-    );
+    try {
+      // Get enabled channels
+      const enabledChannels = ["C", "M", "Y", "K"].filter(channel => 
+        document.getElementById(`enable${channel}`).checked
+      );
 
-    // Convert to grayscale intensity map
-    const { width, height, data } = this.imageData;
-    const intensityMap = new Float32Array(width * height);
+      // Clear all channels first
+      enabledChannels.forEach(channel => {
+        this.channels[channel].group.innerHTML = "";
+        this.channels[channel].gcodeLines = [];
+      });
 
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      let intensity = 1 - gray / 255; // Invert so dark areas = high intensity
+      // Process each enabled channel with chunked rendering
+      for (let i = 0; i < enabledChannels.length; i++) {
+        if (this.processingCancelled) break;
+        
+        const channel = enabledChannels[i];
+        this.updateProgress(`Processing ${channel} channel (${i + 1}/${enabledChannels.length})`);
+        
+        await this.processChannelChunked(channel, i, enabledChannels.length);
+      }
 
-      // Apply contrast adjustment
-      intensity = Math.pow(intensity, contrast);
-      intensity = Math.max(0, Math.min(1, intensity)); // Clamp between 0 and 1
+      if (!this.processingCancelled) {
+        // Update line count display (sum of all channels)
+        const totalLines = enabledChannels.reduce((sum, channel) => 
+          sum + this.channels[channel].gcodeLines.length, 0
+        );
+        document.getElementById("lineCount").textContent = totalLines.toLocaleString();
 
-      intensityMap[i / 4] = intensity;
+        // Enable download buttons
+        document.getElementById("downloadBtn").disabled = false;
+        document.getElementById("downloadGcodeBtn").disabled = false;
+        this.updateChannelVisibility();
+
+        this.showStatus("Conversion complete!", "complete");
+      }
+    } catch (error) {
+      console.error("Processing error:", error);
+      this.showStatus("Processing error occurred", "error");
+    } finally {
+      this.isProcessing = false;
+      this.hideProgress();
     }
+  }
 
-    // Clear SVG lines
-    this.linesGroup.innerHTML = "";
+  async processChannelChunked(channel, channelIndex, totalChannels) {
+    const penDiameter = parseFloat(document.getElementById("penDiameterValue").value);
+    const lineAngle = parseInt(document.getElementById("lineAngleValue").value);
+    const sectionWidth = parseFloat(document.getElementById("sectionWidthValue").value);
+    const contrast = parseFloat(document.getElementById("contrastValue").value);
+    const canvasWidthMm = parseFloat(document.getElementById("canvasWidthValue").value);
+    const canvasHeightMm = parseFloat(document.getElementById("canvasHeightValue").value);
+    const lineSpacing = parseFloat(document.getElementById("lineSpacingValue").value);
 
-    // Generate proper SVG header with all required attributes (matching working version)
-    this.svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+    const { width, height, data } = this.imageData;
+    const channelData = this.channels[channel];
+
+    // Clear channel data
+    channelData.group.innerHTML = "";
+    channelData.gcodeLines = [];
+
+    // Create channel-specific intensity map using CMYK conversion
+    const intensityMap = this.createChannelIntensityMap(data, width, height, channel, contrast);
+
+    // Generate SVG header for this channel
+    channelData.svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="${canvasWidthMm}mm" height="${canvasHeightMm}mm" 
      viewBox="0 0 ${width} ${height}" 
      version="1.1" 
      xmlns="http://www.w3.org/2000/svg" 
      xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs/>
-  <g id="pen-plotter-lines" stroke="black" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <g id="pen-plotter-lines-${channel}" stroke="${channelData.color}" fill="none" stroke-linecap="round" stroke-linejoin="round">
 `;
 
-    // Clear G-code lines array
-    this.gcodeLines = [];
+    // Calculate channel offset to avoid overlapping
+    const penDiameterPx = penDiameter * this.pixelsPerMm;
+    const channelOffset = channelIndex * penDiameterPx;
 
     // Convert angle to radians
     const angleRad = (lineAngle * Math.PI) / 180;
     const dx = Math.cos(angleRad);
     const dy = Math.sin(angleRad);
 
-    // Calculate section spacing in pixels
+    // Calculate section spacing adjusted for multiple channels
+    const adjustedLineSpacing = lineSpacing * totalChannels;
     const sectionSpacing = sectionWidth * this.pixelsPerMm;
 
     // Generate lines perpendicular to the main angle
@@ -354,47 +453,255 @@ class PenPlotterConverter {
     const diagonal = Math.sqrt(width * width + height * height);
     const numSections = Math.ceil(diagonal / sectionSpacing) * 2;
 
-    for (let section = 0; section < numSections; section++) {
-      // Calculate the center line for this section
-      const offset = (section - numSections / 2) * sectionSpacing;
-      const centerX = width / 2 + perpDx * offset;
-      const centerY = height / 2 + perpDy * offset;
+    // Process sections in chunks to prevent freezing
+    const CHUNK_SIZE = 50; // Process 50 sections at a time
+    const MAX_CPU_TIME = 30; // Max 30ms per chunk (30% of 100ms frame)
+    
+    for (let chunkStart = 0; chunkStart < numSections; chunkStart += CHUNK_SIZE) {
+      if (this.processingCancelled) break;
+      
+      const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, numSections);
+      const progress = Math.round((chunkStart / numSections) * 100);
+      this.updateProgress(`Processing ${channel} channel ${progress}%`);
+      
+      // Process chunk with CPU time limiting
+      const startTime = performance.now();
+      
+      for (let section = chunkStart; section < chunkEnd; section++) {
+        // Check CPU time every 10 sections
+        if (section % 10 === 0 && performance.now() - startTime > MAX_CPU_TIME) {
+          // If we're taking too long, yield control and continue in next chunk
+          await this.yield();
+          continue;
+        }
+        
+        // Calculate the center line for this section with channel offset
+        const baseOffset = (section - numSections / 2) * sectionSpacing;
+        const offset = baseOffset + channelOffset;
+        const centerX = width / 2 + perpDx * offset;
+        const centerY = height / 2 + perpDy * offset;
 
-      // Find the line segment within the image bounds
-      const linePoints = this.clipLineToCanvas(
-        centerX,
-        centerY,
-        dx,
-        dy,
-        width,
-        height
-      );
+        // Find the line segment within the image bounds
+        const linePoints = this.clipLineToCanvas(centerX, centerY, dx, dy, width, height);
 
-      if (linePoints.length === 2) {
-        const [start, end] = linePoints;
-        this.drawOptimizedVariableThicknessLine(
-          start.x,
-          start.y,
-          end.x,
-          end.y,
-          intensityMap,
-          width,
-          height,
-          penDiameter
-        );
+        if (linePoints.length === 2) {
+          const [start, end] = linePoints;
+          this.drawChannelLine(
+            start.x, start.y, end.x, end.y,
+            intensityMap, width, height,
+            penDiameter, channel, adjustedLineSpacing
+          );
+        }
       }
+      
+      // Yield control between chunks
+      await this.yield();
     }
 
-    this.svgContent += `  </g>
-</svg>`;
+    channelData.svgContent += `  </g>\n</svg>`;
+  }
 
-    // Update line count display
-    document.getElementById("lineCount").textContent =
-      this.gcodeLines.length.toLocaleString();
+  // Yield control back to the browser to prevent freezing
+  yield() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
 
-    document.getElementById("downloadBtn").disabled = false;
-    document.getElementById("downloadGcodeBtn").disabled = false;
-    this.showStatus("Conversion complete!", "complete");
+  // Cancel current processing if parameters change
+  cancelProcessing() {
+    if (this.isProcessing) {
+      this.processingCancelled = true;
+      this.hideProgress();
+    }
+  }
+
+  createChannelIntensityMap(data, width, height, channel, contrast) {
+    const intensityMap = new Float32Array(width * height);
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] / 255;
+      const g = data[i + 1] / 255;
+      const b = data[i + 2] / 255;
+
+      // Convert RGB to CMYK
+      const k = 1 - Math.max(r, g, b);
+      const c = k >= 1 ? 0 : (1 - r - k) / (1 - k);
+      const m = k >= 1 ? 0 : (1 - g - k) / (1 - k);
+      const y = k >= 1 ? 0 : (1 - b - k) / (1 - k);
+
+      // Get intensity for the specific channel
+      let intensity = 0;
+      switch (channel) {
+        case 'C': intensity = c; break;
+        case 'M': intensity = m; break;
+        case 'Y': intensity = y; break;
+        case 'K': intensity = k; break;
+      }
+
+      // Apply contrast adjustment
+      intensity = Math.pow(intensity, contrast);
+      intensity = Math.max(0, Math.min(1, intensity)); // Clamp between 0 and 1
+
+      intensityMap[i / 4] = intensity;
+    }
+
+    return intensityMap;
+  }
+
+  drawChannelLine(x1, y1, x2, y2, intensityMap, width, height, penDiameter, channel, lineSpacing) {
+    // This is a modified version of drawOptimizedVariableThicknessLine for channels
+    const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    const steps = Math.ceil(length / 2);
+
+    // Sample intensity along the entire line
+    const intensities = [];
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      const intensity = this.sampleIntensity(x, y, intensityMap, width, height);
+      intensities.push({ x, y, intensity, t });
+    }
+
+    // Calculate perpendicular direction for line spacing
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lineLength = Math.sqrt(dx * dx + dy * dy);
+    const perpX = -dy / lineLength;
+    const perpY = dx / lineLength;
+
+    const penWidthPx = penDiameter * this.pixelsPerMm;
+    const lineSpacingPx = lineSpacing * this.pixelsPerMm;
+
+    // Determine maximum number of lines needed
+    const maxIntensity = Math.max(...intensities.map((p) => p.intensity));
+    const maxLines = Math.ceil(5 * maxIntensity);
+
+    // For each possible line position (center + alternating)
+    for (let lineIndex = 0; lineIndex < maxLines; lineIndex++) {
+      // Calculate offset using center + alternating pattern
+      let offset;
+      if (lineIndex === 0) {
+        offset = 0; // Center line
+      } else {
+        const segmentIndex = Math.ceil(lineIndex / 2);
+        const isTop = lineIndex % 2 === 1;
+        offset = isTop
+          ? segmentIndex * lineSpacingPx
+          : -segmentIndex * lineSpacingPx;
+      }
+
+      // Build the path for this line by collecting segments where it should exist
+      let pathSegments = [];
+      let currentSegment = null;
+
+      for (let i = 0; i < intensities.length; i++) {
+        const point = intensities[i];
+        const requiredLines = Math.ceil(5 * point.intensity);
+        const shouldDrawLine = lineIndex < requiredLines;
+
+        if (shouldDrawLine) {
+          const segmentX = point.x + perpX * offset;
+          const segmentY = point.y + perpY * offset;
+
+          if (!currentSegment) {
+            // Start new segment
+            currentSegment = {
+              startX: segmentX,
+              startY: segmentY,
+              endX: segmentX,
+              endY: segmentY,
+              startT: point.t,
+              endT: point.t,
+            };
+          } else {
+            // Extend current segment
+            currentSegment.endX = segmentX;
+            currentSegment.endY = segmentY;
+            currentSegment.endT = point.t;
+          }
+        } else if (currentSegment) {
+          // End current segment and add to path
+          pathSegments.push(currentSegment);
+          currentSegment = null;
+        }
+      }
+
+      // Don't forget the last segment
+      if (currentSegment) {
+        pathSegments.push(currentSegment);
+      }
+
+      // Merge close segments BEFORE filtering by minimum length
+      const maxMergeDistanceMm = parseFloat(
+        document.getElementById("maxMergeDistanceValue").value
+      );
+      const maxMergeDistancePx = maxMergeDistanceMm * this.pixelsPerMm;
+      
+      if (maxMergeDistanceMm > 0 && pathSegments.length > 1) {
+        pathSegments = this.mergeCloseSegments(pathSegments, maxMergeDistancePx);
+      }
+
+      // Filter out segments shorter than minimum length AFTER merging
+      const minLineLengthMm = parseFloat(
+        document.getElementById("minLineLengthValue").value
+      );
+      const filteredSegments = pathSegments.filter((segment) => {
+        const gcodeX1 = segment.startX / this.pixelsPerMm;
+        const gcodeY1 = segment.startY / this.pixelsPerMm;
+        const gcodeX2 = segment.endX / this.pixelsPerMm;
+        const gcodeY2 = segment.endY / this.pixelsPerMm;
+
+        const lineLengthMm = Math.sqrt(
+          (gcodeX2 - gcodeX1) ** 2 + (gcodeY2 - gcodeY1) ** 2
+        );
+
+        return lineLengthMm >= minLineLengthMm;
+      });
+
+      pathSegments = filteredSegments;
+
+      // Draw and output each segment for this line
+      pathSegments.forEach((segment) => {
+        // Validate coordinates before adding to SVG
+        const x1 = isFinite(segment.startX) ? segment.startX.toFixed(3) : "0";
+        const y1 = isFinite(segment.startY) ? segment.startY.toFixed(3) : "0";
+        const x2 = isFinite(segment.endX) ? segment.endX.toFixed(3) : "0";
+        const y2 = isFinite(segment.endY) ? segment.endY.toFixed(3) : "0";
+        const strokeWidth = isFinite(penWidthPx) ? penWidthPx.toFixed(3) : "1";
+
+        // Only add if line has non-zero length
+        if (
+          Math.abs(parseFloat(x2) - parseFloat(x1)) > 0.001 ||
+          Math.abs(parseFloat(y2) - parseFloat(y1)) > 0.001
+        ) {
+          // Add to channel SVG content string
+          this.channels[channel].svgContent += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${strokeWidth}"/>
+`;
+          
+          // Draw directly to channel SVG DOM
+          const lineElement = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          lineElement.setAttribute("x1", x1);
+          lineElement.setAttribute("y1", y1);
+          lineElement.setAttribute("x2", x2);
+          lineElement.setAttribute("y2", y2);
+          lineElement.setAttribute("stroke-width", strokeWidth);
+          this.channels[channel].group.appendChild(lineElement);
+        }
+
+        // Add to channel G-code
+        const gcodeX1 = segment.startX / this.pixelsPerMm;
+        const gcodeY1 = segment.startY / this.pixelsPerMm;
+        const gcodeX2 = segment.endX / this.pixelsPerMm;
+        const gcodeY2 = segment.endY / this.pixelsPerMm;
+
+        this.channels[channel].gcodeLines.push({
+          x1: gcodeX1,
+          y1: gcodeY1,
+          x2: gcodeX2,
+          y2: gcodeY2,
+        });
+      });
+    }
   }
 
   clipLineToCanvas(centerX, centerY, dx, dy, width, height) {
@@ -690,13 +997,62 @@ class PenPlotterConverter {
   }
 
   downloadSVG() {
-    if (!this.svgContent) return;
+    // Download combined SVG with all enabled channels
+    const enabledChannels = ["C", "M", "Y", "K"].filter(channel => 
+      document.getElementById(`enable${channel}`).checked
+    );
 
-    const blob = new Blob([this.svgContent], { type: "image/svg+xml" });
+    if (enabledChannels.length === 0) return;
+
+    const canvasWidthMm = parseFloat(document.getElementById("canvasWidthValue").value);
+    const canvasHeightMm = parseFloat(document.getElementById("canvasHeightValue").value);
+    const { width, height } = this.imageData;
+
+    let combinedSvg = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="${canvasWidthMm}mm" height="${canvasHeightMm}mm" 
+     viewBox="0 0 ${width} ${height}" 
+     version="1.1" 
+     xmlns="http://www.w3.org/2000/svg" 
+     xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs/>
+`;
+
+    // Add each enabled channel's lines
+    enabledChannels.forEach(channel => {
+      const channelData = this.channels[channel];
+      combinedSvg += `  <g id="pen-plotter-lines-${channel}" stroke="${channelData.color}" fill="none" stroke-linecap="round" stroke-linejoin="round">\n`;
+      
+      // Extract just the line elements from the channel's SVG content
+      const lines = channelData.svgContent.match(/<line[^>]*\/>/g) || [];
+      lines.forEach(line => {
+        combinedSvg += `    ${line}\n`;
+      });
+      
+      combinedSvg += `  </g>\n`;
+    });
+
+    combinedSvg += `</svg>`;
+
+    const blob = new Blob([combinedSvg], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "pen-plotter-output.svg";
+    a.download = "pen-plotter-combined.svg";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  downloadChannelSVG(channel) {
+    const channelData = this.channels[channel];
+    if (!channelData.svgContent) return;
+
+    const blob = new Blob([channelData.svgContent], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pen-plotter-${channel}.svg`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -771,7 +1127,33 @@ class PenPlotterConverter {
   }
 
   downloadGcode() {
-    if (this.gcodeLines.length === 0) return;
+    // Download combined G-code with all enabled channels
+    const enabledChannels = ["C", "M", "Y", "K"].filter(channel => 
+      document.getElementById(`enable${channel}`).checked
+    );
+
+    if (enabledChannels.length === 0) return;
+
+    // Combine all G-code lines from enabled channels
+    const allLines = [];
+    enabledChannels.forEach(channel => {
+      allLines.push(...this.channels[channel].gcodeLines);
+    });
+
+    if (allLines.length === 0) return;
+
+    this.generateGcodeFile(allLines, "pen-plotter-combined.gcode");
+  }
+
+  downloadChannelGcode(channel) {
+    const channelData = this.channels[channel];
+    if (channelData.gcodeLines.length === 0) return;
+
+    this.generateGcodeFile(channelData.gcodeLines, `pen-plotter-${channel}.gcode`);
+  }
+
+  generateGcodeFile(lines, filename) {
+    if (lines.length === 0) return;
 
     const feedRate = parseInt(document.getElementById("feedRateValue").value);
     const penDownZ = parseFloat(document.getElementById("penDownZValue").value);
@@ -801,7 +1183,7 @@ class PenPlotterConverter {
     let penIsDown = false;
 
     // Optimize path globally to minimize total travel distance
-    const optimizedPath = this.optimizeGcodePath(this.gcodeLines, currentX, currentY);
+    const optimizedPath = this.optimizeGcodePath(lines, currentX, currentY);
     
     optimizedPath.forEach((segment) => {
       const { startX, startY, endX, endY } = segment;
@@ -844,7 +1226,7 @@ class PenPlotterConverter {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "pen-plotter-output.gcode";
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
