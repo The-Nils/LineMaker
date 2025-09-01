@@ -1,9 +1,9 @@
 class PenPlotterConverter {
   constructor() {
     this.originalCanvas = document.createElement("canvas"); // Hidden canvas for processing
-    this.outputCanvas = document.getElementById("outputCanvas");
+    this.outputSvg = document.getElementById("outputSvg");
+    this.linesGroup = document.getElementById("pen-plotter-lines");
     this.originalCtx = this.originalCanvas.getContext("2d");
-    this.outputCtx = this.outputCanvas.getContext("2d");
     this.thumbnail = document.getElementById("imageThumbnail");
     this.imageData = null;
     this.originalImage = null;
@@ -12,7 +12,7 @@ class PenPlotterConverter {
     this.pixelsPerMm = 96 / 25.4; // Standard web DPI conversion
 
     this.setupEventListeners();
-    this.updateCanvasSize();
+    this.updateSvgSize();
   }
 
   setupEventListeners() {
@@ -23,11 +23,11 @@ class PenPlotterConverter {
 
     // Setup number input listeners
     this.setupNumberInput("canvasWidthValue", () => {
-      this.updateCanvasSize();
+      this.updateSvgSize();
       if (this.originalImage) this.redrawImage();
     });
     this.setupNumberInput("canvasHeightValue", () => {
-      this.updateCanvasSize();
+      this.updateSvgSize();
       if (this.originalImage) this.redrawImage();
     });
     this.setupNumberInput("penDiameterValue", () => {
@@ -48,6 +48,9 @@ class PenPlotterConverter {
     this.setupNumberInput("contrastValue", () => {
       if (this.imageData) this.processImage();
     });
+    this.setupNumberInput("maxMergeDistanceValue", () => {
+      if (this.imageData) this.processImage();
+    });
     this.setupNumberInput("feedRateValue", () => {});
     this.setupNumberInput("penDownZValue", () => {});
     this.setupNumberInput("penUpZValue", () => {});
@@ -55,7 +58,7 @@ class PenPlotterConverter {
     // Setup zoom controls
     this.syncInputs("canvasZoom", "canvasZoomValue");
     this.setupNumberInput("canvasZoomValue", () => {
-      this.updateCanvasZoom();
+      this.updateSvgZoom();
     });
 
     // Download button
@@ -82,12 +85,12 @@ class PenPlotterConverter {
 
     slider.addEventListener("input", () => {
       number.value = slider.value;
-      this.updateCanvasZoom();
+      this.updateSvgZoom();
     });
 
     number.addEventListener("input", () => {
       slider.value = number.value;
-      this.updateCanvasZoom();
+      this.updateSvgZoom();
     });
   }
 
@@ -98,7 +101,7 @@ class PenPlotterConverter {
     status.style.display = "block";
   }
 
-  updateCanvasSize() {
+  updateSvgSize() {
     const widthMm = parseFloat(
       document.getElementById("canvasWidthValue").value
     );
@@ -110,61 +113,63 @@ class PenPlotterConverter {
     const widthPx = Math.round(widthMm * this.pixelsPerMm);
     const heightPx = Math.round(heightMm * this.pixelsPerMm);
 
-    // Set canvas to full resolution
+    // Set canvas to full resolution for image processing
     this.originalCanvas.width = widthPx;
     this.originalCanvas.height = heightPx;
-    this.outputCanvas.width = widthPx;
-    this.outputCanvas.height = heightPx;
 
-    // Set canvas display size
-    this.outputCanvas.style.width = widthPx + "px";
-    this.outputCanvas.style.height = heightPx + "px";
-    // this.outputCanvas.style.transformOrigin = 'center center';
+    // Update SVG viewBox and size
+    this.outputSvg.setAttribute("viewBox", `0 0 ${widthPx} ${heightPx}`);
+    this.outputSvg.setAttribute("width", widthMm + "mm");
+    this.outputSvg.setAttribute("height", heightMm + "mm");
+    this.outputSvg.style.width = widthPx + "px";
+    this.outputSvg.style.height = heightPx + "px";
 
     // Apply zoom
-    this.updateCanvasZoom();
+    this.updateSvgZoom();
 
-    // Clear canvases with white background
+    // Clear canvas with white background for image processing
     this.originalCtx.fillStyle = "white";
     this.originalCtx.fillRect(0, 0, widthPx, heightPx);
-    this.outputCtx.fillStyle = "white";
-    this.outputCtx.fillRect(0, 0, widthPx, heightPx);
+    
+    // Clear SVG lines
+    this.linesGroup.innerHTML = "";
   }
 
-  updateCanvasZoom() {
-    if (!this.outputCanvas || !this.outputCanvas.parentElement) return;
+  updateSvgZoom() {
+    if (!this.outputSvg || !this.outputSvg.parentElement) return;
 
     // Get current zoom value
     const zoom =
       parseFloat(document.getElementById("canvasZoomValue").value) || 1;
 
-    // Calculate auto-fit scale to prevent canvas from being too big by default
-    const previewContainer = this.outputCanvas.parentElement;
+    // Calculate auto-fit scale to prevent SVG from being too big by default
+    const previewContainer = this.outputSvg.parentElement;
     const containerWidth = previewContainer.clientWidth - 40;
     const containerHeight = previewContainer.clientHeight - 40;
 
     // Make sure container has dimensions
     if (containerWidth <= 0 || containerHeight <= 0) {
       // Retry after a short delay if container isn't ready
-      setTimeout(() => this.updateCanvasZoom(), 100);
+      setTimeout(() => this.updateSvgZoom(), 100);
       return;
     }
 
-    const canvasWidth =
-      parseInt(this.outputCanvas.style.width) || this.outputCanvas.width;
-    const canvasHeight =
-      parseInt(this.outputCanvas.style.height) || this.outputCanvas.height;
+    const svgWidth =
+      parseInt(this.outputSvg.style.width) || 200;
+    const svgHeight =
+      parseInt(this.outputSvg.style.height) || 200;
 
-    // Make sure canvas has dimensions
-    if (canvasWidth <= 0 || canvasHeight <= 0) return;
+    // Make sure SVG has dimensions
+    if (svgWidth <= 0 || svgHeight <= 0) return;
 
-    const scaleX = containerWidth / canvasWidth;
-    const scaleY = containerHeight / canvasHeight;
+    const scaleX = containerWidth / svgWidth;
+    const scaleY = containerHeight / svgHeight;
     const autoFitScale = Math.min(scaleX, scaleY, 1); // Don't scale up beyond 1x
 
     // Apply both auto-fit and user zoom
     const finalScale = autoFitScale * zoom;
-    this.outputCanvas.style.transform = `scale(${finalScale})`;
+    this.outputSvg.style.transformOrigin = "center center";
+    this.outputSvg.style.transform = `scale(${finalScale})`;
   }
 
   loadImage(file) {
@@ -315,11 +320,8 @@ class PenPlotterConverter {
       intensityMap[i / 4] = intensity;
     }
 
-    // Clear output canvas
-    this.outputCtx.fillStyle = "white";
-    this.outputCtx.fillRect(0, 0, width, height);
-    this.outputCtx.strokeStyle = "black";
-    this.outputCtx.lineWidth = 1;
+    // Clear SVG lines
+    this.linesGroup.innerHTML = "";
 
     // Generate proper SVG header with all required attributes (matching working version)
     this.svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -556,7 +558,17 @@ class PenPlotterConverter {
         pathSegments.push(currentSegment);
       }
 
-      // Filter out segments shorter than minimum length
+      // Merge close segments on the same line BEFORE filtering by minimum length
+      const maxMergeDistanceMm = parseFloat(
+        document.getElementById("maxMergeDistanceValue").value
+      );
+      const maxMergeDistancePx = maxMergeDistanceMm * this.pixelsPerMm;
+      
+      if (maxMergeDistanceMm > 0 && pathSegments.length > 1) {
+        pathSegments = this.mergeCloseSegments(pathSegments, maxMergeDistancePx);
+      }
+
+      // Filter out segments shorter than minimum length AFTER merging
       const minLineLengthMm = parseFloat(
         document.getElementById("minLineLengthValue").value
       );
@@ -577,13 +589,6 @@ class PenPlotterConverter {
 
       // Draw and output each segment for this line
       pathSegments.forEach((segment) => {
-        // Draw on canvas
-        this.outputCtx.lineWidth = penWidthPx;
-        this.outputCtx.beginPath();
-        this.outputCtx.moveTo(segment.startX, segment.startY);
-        this.outputCtx.lineTo(segment.endX, segment.endY);
-        this.outputCtx.stroke();
-
         // Validate coordinates before adding to SVG
         const x1 = isFinite(segment.startX) ? segment.startX.toFixed(3) : "0";
         const y1 = isFinite(segment.startY) ? segment.startY.toFixed(3) : "0";
@@ -596,8 +601,18 @@ class PenPlotterConverter {
           Math.abs(parseFloat(x2) - parseFloat(x1)) > 0.001 ||
           Math.abs(parseFloat(y2) - parseFloat(y1)) > 0.001
         ) {
+          // Add to SVG content string
           this.svgContent += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${strokeWidth}"/>
 `;
+          
+          // Draw directly to SVG DOM
+          const lineElement = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          lineElement.setAttribute("x1", x1);
+          lineElement.setAttribute("y1", y1);
+          lineElement.setAttribute("x2", x2);
+          lineElement.setAttribute("y2", y2);
+          lineElement.setAttribute("stroke-width", strokeWidth);
+          this.linesGroup.appendChild(lineElement);
         }
 
         // Add to G-code
@@ -614,6 +629,44 @@ class PenPlotterConverter {
         });
       });
     }
+  }
+
+  mergeCloseSegments(segments, maxMergeDistancePx) {
+    if (segments.length < 2) return segments;
+    
+    // Sort segments by their start position along the line
+    segments.sort((a, b) => {
+      // Use the t parameter to sort along the line direction
+      return a.startT - b.startT;
+    });
+    
+    const mergedSegments = [];
+    let currentSegment = segments[0];
+    
+    for (let i = 1; i < segments.length; i++) {
+      const nextSegment = segments[i];
+      
+      // Calculate distance between end of current segment and start of next segment
+      const distanceX = nextSegment.startX - currentSegment.endX;
+      const distanceY = nextSegment.startY - currentSegment.endY;
+      const distance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
+      
+      if (distance <= maxMergeDistancePx) {
+        // Merge segments by extending current segment to include next segment
+        currentSegment.endX = nextSegment.endX;
+        currentSegment.endY = nextSegment.endY;
+        currentSegment.endT = nextSegment.endT;
+      } else {
+        // Gap is too large, finish current segment and start new one
+        mergedSegments.push(currentSegment);
+        currentSegment = nextSegment;
+      }
+    }
+    
+    // Don't forget the last segment
+    mergedSegments.push(currentSegment);
+    
+    return mergedSegments;
   }
 
   sampleIntensity(x, y, intensityMap, width, height) {
@@ -650,6 +703,73 @@ class PenPlotterConverter {
     URL.revokeObjectURL(url);
   }
 
+  optimizeGcodePath(lines, startX, startY) {
+    if (lines.length === 0) return [];
+    
+    // Create a copy of lines to work with
+    const availableLines = [...lines];
+    const optimizedPath = [];
+    let currentX = startX;
+    let currentY = startY;
+    
+    while (availableLines.length > 0) {
+      let closestLineIndex = -1;
+      let closestDistance = Infinity;
+      let useReversed = false;
+      
+      // Find the closest endpoint among all remaining lines
+      availableLines.forEach((line, index) => {
+        // Check distance to start of line (x1, y1)
+        const distToStart = Math.sqrt(
+          (currentX - line.x1) ** 2 + (currentY - line.y1) ** 2
+        );
+        
+        // Check distance to end of line (x2, y2)
+        const distToEnd = Math.sqrt(
+          (currentX - line.x2) ** 2 + (currentY - line.y2) ** 2
+        );
+        
+        // Update closest if we found a better option
+        if (distToStart < closestDistance) {
+          closestDistance = distToStart;
+          closestLineIndex = index;
+          useReversed = false; // Start from x1,y1 -> x2,y2
+        }
+        
+        if (distToEnd < closestDistance) {
+          closestDistance = distToEnd;
+          closestLineIndex = index;
+          useReversed = true; // Start from x2,y2 -> x1,y1
+        }
+      });
+      
+      // Add the closest line to the optimized path
+      const selectedLine = availableLines[closestLineIndex];
+      let startX, startY, endX, endY;
+      
+      if (useReversed) {
+        startX = selectedLine.x2;
+        startY = selectedLine.y2;
+        endX = selectedLine.x1;
+        endY = selectedLine.y1;
+      } else {
+        startX = selectedLine.x1;
+        startY = selectedLine.y1;
+        endX = selectedLine.x2;
+        endY = selectedLine.y2;
+      }
+      
+      optimizedPath.push({ startX, startY, endX, endY });
+      
+      // Update current position and remove the used line
+      currentX = endX;
+      currentY = endY;
+      availableLines.splice(closestLineIndex, 1);
+    }
+    
+    return optimizedPath;
+  }
+
   downloadGcode() {
     if (this.gcodeLines.length === 0) return;
 
@@ -680,31 +800,11 @@ class PenPlotterConverter {
     let currentY = 0;
     let penIsDown = false;
 
-    // Optimize line order for zig-zag pattern to minimize travel
-    this.gcodeLines.forEach((line) => {
-      // Calculate distance to both ends of the line
-      const distToStart = Math.sqrt(
-        (currentX - line.x1) ** 2 + (currentY - line.y1) ** 2
-      );
-      const distToEnd = Math.sqrt(
-        (currentX - line.x2) ** 2 + (currentY - line.y2) ** 2
-      );
-
-      // Choose the closer end as start point, draw to the far end
-      let startX, startY, endX, endY;
-      if (distToStart <= distToEnd) {
-        // Draw from x1,y1 to x2,y2
-        startX = line.x1;
-        startY = line.y1;
-        endX = line.x2;
-        endY = line.y2;
-      } else {
-        // Draw from x2,y2 to x1,y1 (reverse direction)
-        startX = line.x2;
-        startY = line.y2;
-        endX = line.x1;
-        endY = line.y1;
-      }
+    // Optimize path globally to minimize total travel distance
+    const optimizedPath = this.optimizeGcodePath(this.gcodeLines, currentX, currentY);
+    
+    optimizedPath.forEach((segment) => {
+      const { startX, startY, endX, endY } = segment;
 
       // Move to start position if needed
       if (
