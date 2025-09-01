@@ -3,18 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image to Pen Plotter Converter</title>
+    <title>HatchMaker</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>Image to Pen Plotter Converter</h1>
-            <p>Convert images to line art suitable for pen plotting with customizable parameters</p>
-        </div>
-
         <div class="main-layout">
             <div class="sidebar">
+                <h1>HatchMaker</h1>
                 <div class="control-group">
                     <h3>Image Input</h3>
                     <div class="file-input-container">
@@ -87,8 +83,29 @@
                         <span class="unit-label">mm</span>
                     </div>
                     <div class="input-row">
+                        <label>Min Line Length:</label>
+                        <input type="number" id="minLineLengthValue" min="0" max="50" step="0.1" value="2">
+                        <span class="unit-label">mm</span>
+                    </div>
+                    <div class="input-row">
                         <label>Contrast:</label>
                         <input type="number" id="contrastValue" min="0.1" max="10" step="0.1" value="1">
+                        <span class="unit-label">×</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Output Statistics</h3>
+                    <div class="stats-display">
+                        <div class="stat-item">
+                            <label>Lines Generated:</label>
+                            <span id="lineCount">0</span>
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <label>Zoom:</label>
+                        <input type="range" id="canvasZoom" min="0.1" max="3" step="0.1" value="1">
+                        <input type="number" id="canvasZoomValue" min="0.1" max="3" step="0.1" value="1">
                         <span class="unit-label">×</span>
                     </div>
                 </div>
@@ -103,12 +120,7 @@
             </div>
 
             <div class="preview-area">
-                <div class="canvas-container">
-                    <div class="canvas-wrapper">
-                        <h3>Pen Plotter Preview</h3>
-                        <canvas id="outputCanvas"></canvas>
-                    </div>
-                </div>
+                <canvas id="outputCanvas"></canvas>
             </div>
         </div>
     </div>
