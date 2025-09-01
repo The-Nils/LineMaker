@@ -435,8 +435,18 @@ class PenPlotterConverter {
             const endY = y1 + dy * group.endT;
 
             // Draw multiple parallel straight lines for this group
+            // First line is always at center (offset = 0), then alternate top/bottom
             for (let line = 0; line < group.lineCount; line++) {
-                const offset = (line - (group.lineCount - 1) / 2) * lineSpacingPx;
+                let offset;
+                if (line === 0) {
+                    // First segment always at center
+                    offset = 0;
+                } else {
+                    // Alternate between positive (top) and negative (bottom) offsets
+                    const segmentIndex = Math.ceil(line / 2);
+                    const isTop = line % 2 === 1;
+                    offset = isTop ? segmentIndex * lineSpacingPx : -segmentIndex * lineSpacingPx;
+                }
                 
                 const lineStartX = startX + perpX * offset;
                 const lineStartY = startY + perpY * offset;
@@ -535,7 +545,7 @@ class PenPlotterConverter {
         let penIsDown = false;
 
         // Process each line
-        this.gcodeLines.forEach((line, index) => {
+        this.gcodeLines.forEach((line) => {
             // Move to start position if needed
             if (currentX !== line.x1 || currentY !== line.y1) {
                 if (penIsDown) {
