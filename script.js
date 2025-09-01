@@ -238,7 +238,7 @@ class PenPlotterConverter {
         this.outputCtx.strokeStyle = 'black';
         this.outputCtx.lineWidth = 1;
 
-        // Generate proper SVG header with all required attributes
+        // Generate proper SVG header with all required attributes (matching working version)
         this.svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="${canvasWidthMm}mm" height="${canvasHeightMm}mm" 
      viewBox="0 0 ${width} ${height}" 
@@ -249,9 +249,8 @@ class PenPlotterConverter {
   <g id="pen-plotter-lines" stroke="black" fill="none" stroke-linecap="round" stroke-linejoin="round">
 `;
 
-        // Clear G-code lines array and create segments collection
+        // Clear G-code lines array
         this.gcodeLines = [];
-        this.allSegments = [];
 
         // Convert angle to radians
         const angleRad = (lineAngle * Math.PI) / 180;
@@ -289,9 +288,6 @@ class PenPlotterConverter {
                 );
             }
         }
-
-        // Merge contiguous segments into paths
-        this.mergeContiguousSegments();
 
         this.svgContent += `  </g>
 </svg>`;
@@ -366,7 +362,7 @@ class PenPlotterConverter {
         const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
         const steps = Math.ceil(length / 2);
         
-        // Sample intensity along the entire line first
+        // Sample intensity along the entire line
         const intensities = [];
         for (let i = 0; i < steps; i++) {
             const t = i / (steps - 1);
@@ -376,104 +372,111 @@ class PenPlotterConverter {
             intensities.push({ x, y, intensity, t });
         }
 
-        // Group consecutive points with same line count, but extend groups to eliminate gaps
-        const lineGroups = [];
-        let currentGroup = null;
-
-        intensities.forEach((point) => {
-            const lineCount = Math.ceil(5 * point.intensity);
-            
-            if (!currentGroup || currentGroup.lineCount !== lineCount) {
-                // Start new group
-                if (currentGroup && currentGroup.points.length > 0) {
-                    lineGroups.push(currentGroup);
-                }
-                currentGroup = {
-                    lineCount,
-                    points: [point],
-                    startT: point.t,
-                    endT: point.t
-                };
-            } else {
-                // Add to current group
-                currentGroup.points.push(point);
-                currentGroup.endT = point.t;
-            }
-        });
-
-        // Don't forget the last group
-        if (currentGroup && currentGroup.points.length > 0) {
-            lineGroups.push(currentGroup);
-        }
-
-        // Extend groups to connect seamlessly (eliminate gaps)
-        for (let i = 0; i < lineGroups.length - 1; i++) {
-            const currentGroupEnd = lineGroups[i].endT;
-            const nextGroupStart = lineGroups[i + 1].startT;
-            
-            // If there's a gap, extend current group to meet next group
-            if (nextGroupStart > currentGroupEnd) {
-                lineGroups[i].endT = nextGroupStart;
-            }
-        }
-
-        // Draw each group as straight continuous lines
-        const penWidthPx = penDiameter * this.pixelsPerMm;
+        // Calculate perpendicular direction for line spacing
         const dx = x2 - x1;
         const dy = y2 - y1;
         const lineLength = Math.sqrt(dx * dx + dy * dy);
         const perpX = -dy / lineLength;
         const perpY = dx / lineLength;
         
-        // Use user-defined line spacing instead of pen diameter calculation
+        const penWidthPx = penDiameter * this.pixelsPerMm;
         const userLineSpacing = parseFloat(document.getElementById('lineSpacingValue').value);
         const lineSpacingPx = userLineSpacing * this.pixelsPerMm;
 
-        lineGroups.forEach(group => {
-            if (group.lineCount === 0) return;
+        // Determine maximum number of lines needed
+        const maxIntensity = Math.max(...intensities.map(p => p.intensity));
+        const maxLines = Math.ceil(5 * maxIntensity);
 
-            // Calculate start and end points for this group (straight line segment)
-            const startX = x1 + dx * group.startT;
-            const startY = y1 + dy * group.startT;
-            const endX = x1 + dx * group.endT;
-            const endY = y1 + dy * group.endT;
+        // For each possible line position (center + alternating)
+        for (let lineIndex = 0; lineIndex < maxLines; lineIndex++) {
+            // Calculate offset using center + alternating pattern
+            let offset;
+            if (lineIndex === 0) {
+                offset = 0; // Center line
+            } else {
+                const segmentIndex = Math.ceil(lineIndex / 2);
+                const isTop = lineIndex % 2 === 1;
+                offset = isTop ? segmentIndex * lineSpacingPx : -segmentIndex * lineSpacingPx;
+            }
 
-            // Draw multiple parallel straight lines for this group
-            // First line is always at center (offset = 0), then alternate top/bottom
-            for (let line = 0; line < group.lineCount; line++) {
-                let offset;
-                if (line === 0) {
-                    // First segment always at center
-                    offset = 0;
-                } else {
-                    // Alternate between positive (top) and negative (bottom) offsets
-                    const segmentIndex = Math.ceil(line / 2);
-                    const isTop = line % 2 === 1;
-                    offset = isTop ? segmentIndex * lineSpacingPx : -segmentIndex * lineSpacingPx;
+            // Build the path for this line by collecting segments where it should exist
+            const pathSegments = [];
+            let currentSegment = null;
+
+            for (let i = 0; i < intensities.length; i++) {
+                const point = intensities[i];
+                const requiredLines = Math.ceil(5 * point.intensity);
+                const shouldDrawLine = lineIndex < requiredLines;
+
+                if (shouldDrawLine) {
+                    const segmentX = point.x + perpX * offset;
+                    const segmentY = point.y + perpY * offset;
+                    
+                    if (!currentSegment) {
+                        // Start new segment
+                        currentSegment = {
+                            startX: segmentX,
+                            startY: segmentY,
+                            endX: segmentX,
+                            endY: segmentY,
+                            startT: point.t,
+                            endT: point.t
+                        };
+                    } else {
+                        // Extend current segment
+                        currentSegment.endX = segmentX;
+                        currentSegment.endY = segmentY;
+                        currentSegment.endT = point.t;
+                    }
+                } else if (currentSegment) {
+                    // End current segment and add to path
+                    pathSegments.push(currentSegment);
+                    currentSegment = null;
                 }
-                
-                const lineStartX = startX + perpX * offset;
-                const lineStartY = startY + perpY * offset;
-                const lineEndX = endX + perpX * offset;
-                const lineEndY = endY + perpY * offset;
+            }
 
+            // Don't forget the last segment
+            if (currentSegment) {
+                pathSegments.push(currentSegment);
+            }
+
+            // Draw and output each segment for this line
+            pathSegments.forEach(segment => {
                 // Draw on canvas
                 this.outputCtx.lineWidth = penWidthPx;
                 this.outputCtx.beginPath();
-                this.outputCtx.moveTo(lineStartX, lineStartY);
-                this.outputCtx.lineTo(lineEndX, lineEndY);
+                this.outputCtx.moveTo(segment.startX, segment.startY);
+                this.outputCtx.lineTo(segment.endX, segment.endY);
                 this.outputCtx.stroke();
 
-                // Collect segment for later merging (in pixels)
-                this.allSegments.push({
-                    x1: lineStartX,
-                    y1: lineStartY,
-                    x2: lineEndX,
-                    y2: lineEndY,
-                    strokeWidth: penWidthPx
+                // Validate coordinates before adding to SVG
+                const x1 = isFinite(segment.startX) ? segment.startX.toFixed(3) : "0";
+                const y1 = isFinite(segment.startY) ? segment.startY.toFixed(3) : "0";
+                const x2 = isFinite(segment.endX) ? segment.endX.toFixed(3) : "0";
+                const y2 = isFinite(segment.endY) ? segment.endY.toFixed(3) : "0";
+                const strokeWidth = isFinite(penWidthPx) ? penWidthPx.toFixed(3) : "1";
+                
+                // Only add if line has non-zero length
+                if (Math.abs(parseFloat(x2) - parseFloat(x1)) > 0.001 || 
+                    Math.abs(parseFloat(y2) - parseFloat(y1)) > 0.001) {
+                    this.svgContent += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${strokeWidth}"/>
+`;
+                }
+
+                // Add to G-code
+                const gcodeX1 = segment.startX / this.pixelsPerMm;
+                const gcodeY1 = segment.startY / this.pixelsPerMm;
+                const gcodeX2 = segment.endX / this.pixelsPerMm;
+                const gcodeY2 = segment.endY / this.pixelsPerMm;
+                
+                this.gcodeLines.push({
+                    x1: gcodeX1,
+                    y1: gcodeY1,
+                    x2: gcodeX2,
+                    y2: gcodeY2
                 });
-            }
-        });
+            });
+        }
     }
 
     sampleIntensity(x, y, intensityMap, width, height) {
@@ -496,123 +499,6 @@ class PenPlotterConverter {
         return sampleCount > 0 ? totalIntensity / sampleCount : 0;
     }
 
-    mergeContiguousSegments() {
-        // Group segments by stroke width
-        const segmentsByWidth = {};
-        this.allSegments.forEach(segment => {
-            const key = segment.strokeWidth.toFixed(3);
-            if (!segmentsByWidth[key]) {
-                segmentsByWidth[key] = [];
-            }
-            segmentsByWidth[key].push(segment);
-        });
-
-        // Process each stroke width group separately
-        Object.keys(segmentsByWidth).forEach(strokeWidth => {
-            const segments = segmentsByWidth[strokeWidth];
-            const mergedPaths = this.findContiguousPaths(segments);
-            
-            // Add merged paths to SVG and G-code
-            mergedPaths.forEach(path => {
-                if (path.points.length === 2) {
-                    // Simple line
-                    this.svgContent += `    <line x1="${path.points[0].x.toFixed(3)}" y1="${path.points[0].y.toFixed(3)}" x2="${path.points[1].x.toFixed(3)}" y2="${path.points[1].y.toFixed(3)}" stroke-width="${strokeWidth}"/>
-`;
-                } else if (path.points.length > 2) {
-                    // Polyline for multiple connected points
-                    const pointsStr = path.points.map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(' ');
-                    this.svgContent += `    <polyline points="${pointsStr}" stroke-width="${strokeWidth}"/>
-`;
-                }
-
-                // Convert path to G-code segments
-                for (let i = 0; i < path.points.length - 1; i++) {
-                    const p1 = path.points[i];
-                    const p2 = path.points[i + 1];
-                    this.gcodeLines.push({
-                        x1: (p1.x / this.pixelsPerMm),
-                        y1: (p1.y / this.pixelsPerMm),
-                        x2: (p2.x / this.pixelsPerMm),
-                        y2: (p2.y / this.pixelsPerMm),
-                        isFirstInPath: i === 0,
-                        isLastInPath: i === path.points.length - 2
-                    });
-                }
-            });
-        });
-    }
-
-    findContiguousPaths(segments) {
-        const paths = [];
-        const used = new Set();
-        const tolerance = 0.1; // Pixel tolerance for connection detection
-
-        segments.forEach((segment, index) => {
-            if (used.has(index)) return;
-
-            const path = {
-                points: [
-                    { x: segment.x1, y: segment.y1 },
-                    { x: segment.x2, y: segment.y2 }
-                ]
-            };
-            used.add(index);
-
-            // Try to extend the path in both directions
-            let extended = true;
-            while (extended) {
-                extended = false;
-                
-                // Try to extend from the end
-                const endPoint = path.points[path.points.length - 1];
-                for (let i = 0; i < segments.length; i++) {
-                    if (used.has(i)) continue;
-                    const seg = segments[i];
-                    
-                    if (this.pointsEqual(endPoint, { x: seg.x1, y: seg.y1 }, tolerance)) {
-                        path.points.push({ x: seg.x2, y: seg.y2 });
-                        used.add(i);
-                        extended = true;
-                        break;
-                    } else if (this.pointsEqual(endPoint, { x: seg.x2, y: seg.y2 }, tolerance)) {
-                        path.points.push({ x: seg.x1, y: seg.y1 });
-                        used.add(i);
-                        extended = true;
-                        break;
-                    }
-                }
-
-                // Try to extend from the beginning
-                if (!extended) {
-                    const startPoint = path.points[0];
-                    for (let i = 0; i < segments.length; i++) {
-                        if (used.has(i)) continue;
-                        const seg = segments[i];
-                        
-                        if (this.pointsEqual(startPoint, { x: seg.x1, y: seg.y1 }, tolerance)) {
-                            path.points.unshift({ x: seg.x2, y: seg.y2 });
-                            used.add(i);
-                            extended = true;
-                            break;
-                        } else if (this.pointsEqual(startPoint, { x: seg.x2, y: seg.y2 }, tolerance)) {
-                            path.points.unshift({ x: seg.x1, y: seg.y1 });
-                            used.add(i);
-                            extended = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            paths.push(path);
-        });
-
-        return paths;
-    }
-
-    pointsEqual(p1, p2, tolerance) {
-        return Math.abs(p1.x - p2.x) <= tolerance && Math.abs(p1.y - p2.y) <= tolerance;
-    }
 
     downloadSVG() {
         if (!this.svgContent) return;
@@ -658,10 +544,10 @@ class PenPlotterConverter {
         let currentY = 0;
         let penIsDown = false;
 
-        // Process each line, taking advantage of path information
+        // Process each line
         this.gcodeLines.forEach((line) => {
-            // Move to start position if needed (only if not continuing a path)
-            if (currentX !== line.x1 || currentY !== line.y1) {
+            // Move to start position if needed
+            if (Math.abs(currentX - line.x1) > 0.001 || Math.abs(currentY - line.y1) > 0.001) {
                 if (penIsDown) {
                     gcode += `G0 Z${penUpZ} ; Pen up\n`;
                     penIsDown = false;
@@ -671,7 +557,7 @@ class PenPlotterConverter {
                 currentY = line.y1;
             }
 
-            // Pen down (only at start of new paths)
+            // Pen down and draw line
             if (!penIsDown) {
                 gcode += `G1 Z${penDownZ} ; Pen down\n`;
                 penIsDown = true;
@@ -680,8 +566,6 @@ class PenPlotterConverter {
             gcode += `G1 X${line.x2.toFixed(3)} Y${line.y2.toFixed(3)} ; Draw line\n`;
             currentX = line.x2;
             currentY = line.y2;
-
-            // Keep pen down for continuous paths (pen only lifts when we need to move to a disconnected segment)
         });
 
         // Footer
