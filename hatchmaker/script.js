@@ -27,6 +27,10 @@ class PenPlotterConverter {
     this.debounceTimer = null;
     this.debounceDelay = 500; // 500ms delay
 
+    // Initialize ConfigManager
+    this.configManager = new ConfigManager();
+    this.toolId = 'hatchmaker';
+
     this.setupEventListeners();
     this.updateSvgSize();
     this.initializeChannelColors();
@@ -127,6 +131,15 @@ class PenPlotterConverter {
     // Recalculate optimal values button
     document.getElementById("recalculateBtn").addEventListener("click", () => {
       this.calculateOptimalValues();
+    });
+
+    // Save/Load configuration buttons
+    document.getElementById("saveConfigBtn").addEventListener("click", () => {
+      this.saveConfiguration();
+    });
+
+    document.getElementById("loadConfigBtn").addEventListener("click", () => {
+      this.loadConfiguration();
     });
   }
 
@@ -1665,6 +1678,187 @@ ${Object.entries(params).map(([key, value]) => `<!-- ${key}: ${value} -->`).join
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Save current configuration
+   */
+  saveConfiguration() {
+    if (!this.originalImage) {
+      alert('Please load an image first before saving configuration.');
+      return;
+    }
+
+    const configName = prompt('Enter a name for this configuration:');
+    if (!configName || configName.trim() === '') {
+      return;
+    }
+
+    // Get all current parameter values
+    const parameters = this.getAllParameters();
+    
+    // Get base64 image data
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = this.originalImage.width;
+    canvas.height = this.originalImage.height;
+    ctx.drawImage(this.originalImage, 0, 0);
+    const base64Image = canvas.toDataURL('image/jpeg', 0.8);
+
+    try {
+      const configId = this.configManager.saveConfig(
+        this.toolId,
+        configName.trim(),
+        parameters,
+        base64Image
+      );
+      alert(`Configuration "${configName}" saved successfully!`);
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      alert('Failed to save configuration. Please try again.');
+    }
+  }
+
+  /**
+   * Load configuration modal
+   */
+  loadConfiguration() {
+    this.configManager.showConfigModal(this.toolId, (config) => {
+      this.applyConfiguration(config);
+    });
+  }
+
+  /**
+   * Get all current parameter values
+   */
+  getAllParameters() {
+    return {
+      // Canvas settings
+      canvasWidth: document.getElementById('canvasWidthValue').value,
+      canvasHeight: document.getElementById('canvasHeightValue').value,
+      canvasZoom: document.getElementById('canvasZoomValue').value,
+      
+      // Pen settings
+      penDiameter: document.getElementById('penDiameterValue').value,
+      
+      // G-code settings
+      feedRate: document.getElementById('feedRateValue').value,
+      penDownZ: document.getElementById('penDownZValue').value,
+      penUpZ: document.getElementById('penUpZValue').value,
+      preventZhop: document.getElementById('preventZhopValue').value,
+      
+      // CMYK settings
+      enableC: document.getElementById('enableC').checked,
+      enableM: document.getElementById('enableM').checked,
+      enableY: document.getElementById('enableY').checked,
+      enableK: document.getElementById('enableK').checked,
+      
+      // Render colors
+      renderColorC: document.getElementById('renderColorC').value,
+      renderColorM: document.getElementById('renderColorM').value,
+      renderColorY: document.getElementById('renderColorY').value,
+      renderColorK: document.getElementById('renderColorK').value,
+      
+      // White points
+      whitePointC: document.getElementById('whitePointCValue').value,
+      whitePointM: document.getElementById('whitePointMValue').value,
+      whitePointY: document.getElementById('whitePointYValue').value,
+      whitePointK: document.getElementById('whitePointKValue').value,
+      
+      // Line pattern
+      lineAngle: document.getElementById('lineAngleValue').value,
+      sectionWidth: document.getElementById('sectionWidthValue').value,
+      lineSpacing: document.getElementById('lineSpacingValue').value,
+      minLineLength: document.getElementById('minLineLengthValue').value,
+      contrast: document.getElementById('contrastValue').value,
+      maxMergeDistance: document.getElementById('maxMergeDistanceValue').value,
+      maxLinesPerChannel: document.getElementById('maxLinesPerChannelValue').value
+    };
+  }
+
+  /**
+   * Apply configuration to all controls
+   */
+  applyConfiguration(config) {
+    const params = config.parameters;
+    
+    // Apply canvas settings
+    document.getElementById('canvasWidthValue').value = params.canvasWidth || '200';
+    document.getElementById('canvasHeightValue').value = params.canvasHeight || '200';
+    document.getElementById('canvasZoomValue').value = params.canvasZoom || '1';
+    document.getElementById('canvasZoom').value = params.canvasZoom || '1';
+    
+    // Apply pen settings
+    document.getElementById('penDiameterValue').value = params.penDiameter || '0.5';
+    
+    // Apply G-code settings
+    document.getElementById('feedRateValue').value = params.feedRate || '1500';
+    document.getElementById('penDownZValue').value = params.penDownZ || '-1';
+    document.getElementById('penUpZValue').value = params.penUpZ || '2';
+    document.getElementById('preventZhopValue').value = params.preventZhop || '2';
+    
+    // Apply CMYK settings
+    document.getElementById('enableC').checked = params.enableC || false;
+    document.getElementById('enableM').checked = params.enableM || false;
+    document.getElementById('enableY').checked = params.enableY || false;
+    document.getElementById('enableK').checked = params.enableK !== undefined ? params.enableK : true;
+    
+    // Apply render colors
+    document.getElementById('renderColorC').value = params.renderColorC || '#00FFFF';
+    document.getElementById('renderColorM').value = params.renderColorM || '#FF00FF';
+    document.getElementById('renderColorY').value = params.renderColorY || '#FFFF00';
+    document.getElementById('renderColorK').value = params.renderColorK || '#000000';
+    
+    // Apply white points
+    document.getElementById('whitePointCValue').value = params.whitePointC || '0.05';
+    document.getElementById('whitePointC').value = params.whitePointC || '0.05';
+    document.getElementById('whitePointMValue').value = params.whitePointM || '0.05';
+    document.getElementById('whitePointM').value = params.whitePointM || '0.05';
+    document.getElementById('whitePointYValue').value = params.whitePointY || '0.05';
+    document.getElementById('whitePointY').value = params.whitePointY || '0.05';
+    document.getElementById('whitePointKValue').value = params.whitePointK || '0.05';
+    document.getElementById('whitePointK').value = params.whitePointK || '0.05';
+    
+    // Apply line pattern
+    document.getElementById('lineAngleValue').value = params.lineAngle || '45';
+    document.getElementById('sectionWidthValue').value = params.sectionWidth || '5';
+    document.getElementById('lineSpacingValue').value = params.lineSpacing || '0.4';
+    document.getElementById('minLineLengthValue').value = params.minLineLength || '2';
+    document.getElementById('contrastValue').value = params.contrast || '1';
+    document.getElementById('maxMergeDistanceValue').value = params.maxMergeDistance || '2';
+    document.getElementById('maxLinesPerChannelValue').value = params.maxLinesPerChannel || '5';
+
+    // Load the saved image
+    if (config.base64Image) {
+      const img = new Image();
+      img.onload = () => {
+        this.originalImage = img;
+        this.originalFilename = `loaded_config_${config.name}`;
+        
+        // Update thumbnail
+        this.thumbnail.src = config.base64Image;
+        this.thumbnail.style.display = 'block';
+        
+        // Update canvas size and redraw
+        this.updateSvgSize();
+        this.updateChannelVisibility();
+        this.updateChannelRenderColors();
+        this.redrawImage();
+      };
+      img.src = config.base64Image;
+    }
+
+    alert(`Configuration "${config.name}" loaded successfully!`);
+  }
+
+  /**
+   * Update channel render colors from current UI values
+   */
+  updateChannelRenderColors() {
+    ['C', 'M', 'Y', 'K'].forEach(channel => {
+      const color = document.getElementById(`renderColor${channel}`).value;
+      this.updateChannelRenderColor(channel, color);
+    });
   }
 }
 
