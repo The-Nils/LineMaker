@@ -31,6 +31,15 @@ class PenPlotterConverter {
     this.configManager = new ConfigManager();
     this.toolId = 'hatchmaker';
 
+    // Initialize InteractiveCanvas for preview area
+    this.previewArea = document.querySelector('.preview-area');
+    this.interactiveCanvas = new InteractiveCanvas(this.previewArea, {
+      minZoom: 0.1,
+      maxZoom: 20,
+      enablePan: true,
+      enableZoom: true
+    });
+
     this.setupEventListeners();
     this.updateSvgSize();
     this.initializeChannelColors();
@@ -140,6 +149,15 @@ class PenPlotterConverter {
 
     document.getElementById("loadConfigBtn").addEventListener("click", () => {
       this.loadConfiguration();
+    });
+
+    // Canvas control buttons
+    document.getElementById("fitToContentBtn").addEventListener("click", () => {
+      this.interactiveCanvas.fitToContent();
+    });
+
+    document.getElementById("resetViewBtn").addEventListener("click", () => {
+      this.interactiveCanvas.resetTransform();
     });
   }
 
@@ -524,6 +542,11 @@ class PenPlotterConverter {
     );
 
     this.processImage();
+    
+    // Fit content to canvas after image is loaded
+    setTimeout(() => {
+      this.interactiveCanvas.fitToContent();
+    }, 100);
   }
 
   async processImage() {
@@ -1706,7 +1729,7 @@ ${Object.entries(params).map(([key, value]) => `<!-- ${key}: ${value} -->`).join
     const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
     try {
-      const configId = this.configManager.saveConfig(
+      this.configManager.saveConfig(
         this.toolId,
         configName.trim(),
         parameters,

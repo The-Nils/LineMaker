@@ -496,6 +496,38 @@ svg {
     min-width: 80px;
 }
 
+/* Interactive Canvas Controls */
+.canvas-control-btn {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+
+.canvas-control-btn:hover {
+    background: rgba(255, 255, 255, 1);
+    border-color: #3498db;
+    color: #3498db;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.canvas-control-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.canvas-controls {
+    pointer-events: auto;
+}
+
 @media (max-width: 768px) {
     .main-layout {
         flex-direction: column;
