@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HatchMaker</title>
+    <title>HatchMaker - LineMaker</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,26 +11,82 @@
         <div class="main-layout">
             <div class="sidebar">
                 <div class="header-section">
-                    <a href="../index.html" class="back-button">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M19 12H5"/>
-                            <path d="M12 19l-7-7 7-7"/>
-                        </svg>
-                        Back to Tools
-                    </a>
-                    <h1>HatchMaker</h1>
-                </div>
-                <div class="control-group">
-                    <h3>Image Input</h3>
-                    <div class="file-input-container">
-                        <label class="file-input">
-                            Choose Image
-                            <input type="file" id="imageInput" accept="image/*">
-                        </label>
-                        <img id="imageThumbnail" class="image-thumbnail" alt="Image preview">
+                    <div class="header-row">
+                        <a href="../index.html" class="back-button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5"/>
+                                <path d="M12 19l-7-7 7-7"/>
+                            </svg>
+                        </a>
+                        <h2 class="tool-title">HatchMaker</h2>
                     </div>
-                    <div id="status" class="status" style="display: none;"></div>
+                    
+                    <div class="image-drop-zone" id="imageDropZone">
+                        <div class="drop-zone-content" id="dropZoneContent">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                <circle cx="8.5" cy="8.5" r="1.5"/>
+                                <polyline points="21,15 16,10 5,21"/>
+                            </svg>
+                            <p>Drop image here or click to upload</p>
+                        </div>
+                        <img id="imageThumbnail" class="image-preview" alt="Image preview" style="display: none;">
+                        <input type="file" id="imageInput" accept="image/*" style="display: none;">
+                    </div>
+                    
+                    <div class="button-row">
+                        <button class="action-btn" id="loadConfigBtn">Load</button>
+                        <button class="action-btn" id="saveConfigBtn">Save</button>
+                    </div>
+                    
+                    <div class="download-section">
+                        <div class="download-dropdown">
+                            <button class="download-btn primary compact" id="svgDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                SVG
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="svgDropdown">
+                                <a href="#" id="downloadBtn">Combined SVG</a>
+                                <a href="#" id="downloadCBtn">Cyan SVG</a>
+                                <a href="#" id="downloadMBtn">Magenta SVG</a>
+                                <a href="#" id="downloadYBtn">Yellow SVG</a>
+                                <a href="#" id="downloadKBtn">Black SVG</a>
+                            </div>
+                        </div>
+                        
+                        <div class="download-dropdown">
+                            <button class="download-btn secondary compact" id="gcodeDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                G-code
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="gcodeDropdown">
+                                <a href="#" id="downloadGcodeBtn">Combined G-code</a>
+                                <a href="#" id="downloadCGcodeBtn">Cyan G-code</a>
+                                <a href="#" id="downloadMGcodeBtn">Magenta G-code</a>
+                                <a href="#" id="downloadYGcodeBtn">Yellow G-code</a>
+                                <a href="#" id="downloadKGcodeBtn">Black G-code</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button class="action-btn full-width" id="redrawBtn">Redraw Image</button>
                 </div>
+                
+                <div class="scrollable-controls">
 
                 <div class="control-group">
                     <h3>Canvas Size</h3>
@@ -197,32 +253,6 @@
                     
                 </div>
 
-                <div class="control-group">
-                    <h3>Save/Load Configuration</h3>
-                    <div class="download-buttons">
-                        <button class="download-btn" id="saveConfigBtn" style="background: #27ae60;">Save Configuration</button>
-                        <button class="download-btn" id="loadConfigBtn" style="background: #3498db;">Load Configuration</button>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <h3>Download</h3>
-                    <div class="download-buttons">
-                        <button class="download-btn" id="downloadBtn" disabled>Download Combined SVG</button>
-                        <button class="download-btn" id="downloadGcodeBtn" disabled style="background: #e67e22;">Download Combined G-code</button>
-                    </div>
-                    <div class="download-buttons" style="margin-top: 10px;">
-                        <button class="download-btn channel-btn" id="downloadCBtn" disabled style="background: #00AAAA;">Download C SVG</button>
-                        <button class="download-btn channel-btn" id="downloadMBtn" disabled style="background: #AA00AA;">Download M SVG</button>
-                        <button class="download-btn channel-btn" id="downloadYBtn" disabled style="background: #AAAA00;">Download Y SVG</button>
-                        <button class="download-btn channel-btn" id="downloadKBtn" disabled style="background: #333;">Download K SVG</button>
-                    </div>
-                    <div class="download-buttons" style="margin-top: 5px;">
-                        <button class="download-btn channel-btn" id="downloadCGcodeBtn" disabled style="background: #00AAAA;">Download C G-code</button>
-                        <button class="download-btn channel-btn" id="downloadMGcodeBtn" disabled style="background: #AA00AA;">Download M G-code</button>
-                        <button class="download-btn channel-btn" id="downloadYGcodeBtn" disabled style="background: #AAAA00;">Download Y G-code</button>
-                        <button class="download-btn channel-btn" id="downloadKGcodeBtn" disabled style="background: #333;">Download K G-code</button>
-                    </div>
                 </div>
             </div>
 
@@ -270,6 +300,9 @@
         <div class="spinner"></div>
         <div class="progress-text">Processing...</div>
     </div>
+
+    <!-- Status notification -->
+    <div id="status" class="status-notification" style="display: none;"></div>
 
     <script src="../configManager.js"></script>
     <script src="../interactiveCanvas.js"></script>

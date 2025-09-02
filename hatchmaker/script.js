@@ -48,7 +48,10 @@ class PenPlotterConverter {
   }
 
   setupEventListeners() {
-    // File input
+    // Setup drop zone functionality
+    this.setupDropZone();
+
+    // File input (still used by drop zone)
     document.getElementById("imageInput").addEventListener("change", (e) => {
       this.loadImage(e.target.files[0]);
     });
@@ -115,27 +118,7 @@ class PenPlotterConverter {
       this.updateSvgZoom();
     });
 
-    // Download button
-    document.getElementById("downloadBtn").addEventListener("click", () => {
-      this.downloadSVG();
-    });
-
-    // Download G-code button
-    document
-      .getElementById("downloadGcodeBtn")
-      .addEventListener("click", () => {
-        this.downloadGcode();
-      });
-
-    // Individual channel download buttons
-    ["C", "M", "Y", "K"].forEach(channel => {
-      document.getElementById(`download${channel}Btn`).addEventListener("click", () => {
-        this.downloadChannelSVG(channel);
-      });
-      document.getElementById(`download${channel}GcodeBtn`).addEventListener("click", () => {
-        this.downloadChannelGcode(channel);
-      });
-    });
+    // Note: Download buttons are now handled by setupDropdowns() method
 
     // Recalculate optimal values button
     document.getElementById("recalculateBtn").addEventListener("click", () => {
@@ -159,6 +142,16 @@ class PenPlotterConverter {
     document.getElementById("resetViewBtn").addEventListener("click", () => {
       this.interactiveCanvas.resetTransform();
     });
+
+    // Redraw button
+    document.getElementById("redrawBtn").addEventListener("click", () => {
+      if (this.originalImage) {
+        this.redrawImage();
+      }
+    });
+
+    // Setup dropdown functionality
+    this.setupDropdowns();
   }
 
   setupNumberInput(inputId, callback) {
@@ -193,8 +186,19 @@ class PenPlotterConverter {
   showStatus(message, type = "processing") {
     const status = document.getElementById("status");
     status.textContent = message;
-    status.className = `status ${type}`;
+    status.className = `status-notification ${type}`;
     status.style.display = "block";
+    
+    // Add show class for animation
+    setTimeout(() => status.classList.add('show'), 10);
+    
+    // Auto-hide after 4 seconds unless it's processing
+    if (type !== "processing") {
+      setTimeout(() => {
+        status.classList.remove('show');
+        setTimeout(() => status.style.display = "none", 300);
+      }, 4000);
+    }
   }
 
   updateSvgSize() {
@@ -459,6 +463,11 @@ class PenPlotterConverter {
           // Show thumbnail
           this.thumbnail.src = e.target.result;
           this.thumbnail.classList.add("show");
+
+          // Update drop zone display if callback exists
+          if (this.originalImageLoadCallback) {
+            this.originalImageLoadCallback(img);
+          }
 
           // Draw image fitted to current canvas
           this.redrawImage();
@@ -1881,6 +1890,98 @@ ${Object.entries(params).map(([key, value]) => `<!-- ${key}: ${value} -->`).join
     ['C', 'M', 'Y', 'K'].forEach(channel => {
       const color = document.getElementById(`renderColor${channel}`).value;
       this.updateChannelRenderColor(channel, color);
+    });
+  }
+
+  /**
+   * Setup drop zone functionality
+   */
+  setupDropZone() {
+    const dropZone = document.getElementById('imageDropZone');
+    const fileInput = document.getElementById('imageInput');
+    const dropZoneContent = document.getElementById('dropZoneContent');
+    const imageThumbnail = document.getElementById('imageThumbnail');
+
+    // Click to upload
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop handlers
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].type.startsWith('image/')) {
+        this.loadImage(files[0]);
+      }
+    });
+
+    // Update display when image is loaded
+    this.originalImageLoadCallback = () => {
+      dropZoneContent.style.display = 'none';
+      imageThumbnail.style.display = 'block';
+      // The thumbnail src is already set in loadImage method
+    };
+  }
+
+  /**
+   * Setup dropdown functionality
+   */
+  setupDropdowns() {
+    // SVG dropdown items
+    document.getElementById('downloadBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadSVG();
+    });
+    document.getElementById('downloadCBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelSVG('C');
+    });
+    document.getElementById('downloadMBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelSVG('M');
+    });
+    document.getElementById('downloadYBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelSVG('Y');
+    });
+    document.getElementById('downloadKBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelSVG('K');
+    });
+
+    // G-code dropdown items
+    document.getElementById('downloadGcodeBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadGcode();
+    });
+    document.getElementById('downloadCGcodeBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelGcode('C');
+    });
+    document.getElementById('downloadMGcodeBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelGcode('M');
+    });
+    document.getElementById('downloadYGcodeBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelGcode('Y');
+    });
+    document.getElementById('downloadKGcodeBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.downloadChannelGcode('K');
     });
   }
 }
