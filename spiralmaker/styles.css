@@ -82,7 +82,7 @@ body {
     font-weight: 700;
     text-align: center;
     padding-bottom: 16px;
-    border-bottom: 2px solid #3498db;
+    border-bottom: 2px solid #9b59b6;
 }
 
 .preview-area {
@@ -113,18 +113,6 @@ body {
     background: white;
     transform-origin: center center;
     transition: transform 0.3s ease;
-}
-
-/* Only the bottom layer (K) should have white background and border */
-#outputSvgK {
-    background: white;
-    border: 2px solid #ecf0f1;
-}
-
-/* Overlay channels are truly transparent */
-.channel-overlay {
-    background: none !important;
-    border: none;
 }
 
 .control-group {
@@ -169,12 +157,20 @@ input[type="range"]::-webkit-slider-thumb {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: #3498db;
+    background: #9b59b6;
     cursor: pointer;
 }
 
 input[type="number"] {
     width: 90px;
+    padding: 5px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+select {
     padding: 5px 8px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -231,7 +227,7 @@ input[type="number"] {
     position: relative;
     display: inline-block;
     cursor: pointer;
-    background: #3498db;
+    background: #9b59b6;
     color: white;
     padding: 12px 24px;
     border-radius: 8px;
@@ -241,7 +237,7 @@ input[type="number"] {
 }
 
 .file-input:hover {
-    background: #2980b9;
+    background: #8e44ad;
 }
 
 .file-input input[type="file"] {
@@ -337,6 +333,12 @@ svg {
     border: 1px solid #c3e6cb;
 }
 
+.status.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
 .download-buttons {
     display: flex;
     flex-direction: column;
@@ -345,120 +347,6 @@ svg {
 
 .download-buttons .download-btn {
     margin: 0;
-}
-
-.checkbox-group {
-    display: flex;
-    gap: 15px;
-    flex-wrap: wrap;
-}
-
-.checkbox-group label {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: auto;
-    font-weight: 500;
-    cursor: pointer;
-}
-
-.checkbox-group input[type="checkbox"] {
-    width: auto;
-}
-
-.channel-btn {
-    font-size: 12px;
-    padding: 8px 16px;
-}
-
-.color-controls {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-}
-
-.color-control {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.color-control label {
-    min-width: auto;
-    font-weight: 500;
-    font-size: 13px;
-}
-
-.color-control input[type="color"] {
-    width: 35px;
-    height: 30px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    cursor: pointer;
-    padding: 0;
-    background: none;
-}
-
-.color-control input[type="color"]::-webkit-color-swatch-wrapper {
-    padding: 0;
-}
-
-.color-control input[type="color"]::-webkit-color-swatch {
-    border: none;
-    border-radius: 3px;
-}
-
-.recalculate-btn {
-    background: #3498db;
-    color: white;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.3s ease;
-    margin-left: auto;
-}
-
-.recalculate-btn:hover {
-    background: #2980b9;
-}
-
-.recalculate-btn:active {
-    background: #21618c;
-    transform: translateY(1px);
-}
-
-.white-point-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 8px;
-}
-
-.white-point-control {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.white-point-control label {
-    min-width: 20px;
-    font-weight: 500;
-    font-size: 13px;
-}
-
-.white-point-control input[type="range"] {
-    flex: 1;
-    min-width: 80px;
-    height: 4px;
-}
-
-.white-point-control input[type="number"] {
-    width: 60px;
-    font-size: 12px;
 }
 
 .progress-indicator {
@@ -481,7 +369,7 @@ svg {
     width: 20px;
     height: 20px;
     border: 3px solid #e3e3e3;
-    border-top: 3px solid #3498db;
+    border-top: 3px solid #9b59b6;
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
