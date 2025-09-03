@@ -148,6 +148,29 @@ class ConfigManager {
         title.textContent = `Saved ${toolId} Configurations`;
         title.style.margin = '0';
 
+        const headerActions = document.createElement('div');
+        headerActions.style.cssText = `
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        `;
+
+        const importBtn = document.createElement('button');
+        importBtn.textContent = 'Import from File';
+        importBtn.style.cssText = `
+            background-color: #f39c12;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        `;
+        importBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.importConfigFromFile(toolId, onSelect, modal);
+        };
+
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '×';
         closeBtn.style.cssText = `
@@ -165,8 +188,11 @@ class ConfigManager {
         `;
         closeBtn.onclick = () => this.closeModal(modal);
 
+        headerActions.appendChild(importBtn);
+        headerActions.appendChild(closeBtn);
+
         header.appendChild(title);
-        header.appendChild(closeBtn);
+        header.appendChild(headerActions);
 
         const configList = document.createElement('div');
         configList.className = 'config-list';
@@ -284,6 +310,22 @@ class ConfigManager {
             this.closeModal(modal);
         };
 
+        const downloadBtn = document.createElement('button');
+        downloadBtn.textContent = 'Download';
+        downloadBtn.style.cssText = `
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        `;
+        downloadBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.downloadConfig(config);
+        };
+
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Delete';
         deleteBtn.style.cssText = `
@@ -304,6 +346,7 @@ class ConfigManager {
         };
 
         actions.appendChild(loadBtn);
+        actions.appendChild(downloadBtn);
         actions.appendChild(deleteBtn);
 
         item.appendChild(thumbnail);
@@ -363,5 +406,86 @@ class ConfigManager {
      */
     generateId() {
         return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+    }
+
+    /**
+     * Download a configuration as a JSON file
+     * @param {Object} config - The configuration to download
+     */
+    downloadConfig(config) {
+        const filename = `${config.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${config.toolId}_config.json`;
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Import a configuration from a JSON file
+     * @param {string} toolId - The tool identifier
+     * @param {Function} onSelect - Callback function when config is loaded
+     * @param {HTMLElement} modal - The modal element
+     */
+    importConfigFromFile(toolId, onSelect, modal) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.style.display = 'none';
+        
+        input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const config = JSON.parse(event.target.result);
+                        
+                        // Validate that it's a valid configuration
+                        if (!config.toolId || !config.parameters || !config.name) {
+                            throw new Error('Invalid configuration file format');
+                        }
+                        
+                        // Check if it's for the right tool
+                        if (config.toolId !== toolId) {
+                            if (!confirm(`This configuration is for "${config.toolId}" but you're using "${toolId}". Load anyway?`)) {
+                                return;
+                            }
+                        }
+                        
+                        // Load the configuration directly
+                        onSelect(config);
+                        this.closeModal(modal);
+                        
+                        // Optionally save it to storage
+                        if (confirm(`Would you like to save "${config.name}" to your saved configurations?`)) {
+                            // Generate new ID to avoid conflicts
+                            config.id = this.generateId();
+                            config.timestamp = new Date().toISOString();
+                            
+                            const allConfigs = this.getAllConfigs();
+                            if (!allConfigs[toolId]) {
+                                allConfigs[toolId] = [];
+                            }
+                            allConfigs[toolId].push(config);
+                            this.saveAllConfigs(allConfigs);
+                        }
+                        
+                    } catch (error) {
+                        console.error("Error loading config:", error);
+                        alert('Error loading configuration file. Please check that it\'s a valid configuration file.');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+        
+        document.body.appendChild(input);
+        input.click();
+        document.body.removeChild(input);
     }
 }
