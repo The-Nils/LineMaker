@@ -77,6 +77,9 @@ class PenPlotterConverter {
     this.initializeChannelColors();
     // Initial auto-computation
     this.autoComputeSpacingParameters();
+    
+    // Check for URL parameter to load a specific configuration
+    this.checkForUrlConfig();
   }
 
   setupEventListeners() {
@@ -1966,6 +1969,28 @@ ${Object.entries(params)
     this.configManager.showConfigModal(this.toolId, (config) => {
       this.applyConfiguration(config);
     });
+  }
+
+  /**
+   * Check for URL parameter to load a specific configuration
+   */
+  checkForUrlConfig() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const configId = urlParams.get('loadConfig');
+    
+    if (configId) {
+      // Load the specific configuration
+      const config = this.configManager.getConfig(this.toolId, configId);
+      if (config) {
+        this.applyConfiguration(config);
+        // Clear the URL parameter to prevent reloading on refresh
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.delete('loadConfig');
+        window.history.replaceState({}, document.title, newUrl.toString());
+      } else {
+        console.warn(`Configuration with ID ${configId} not found for tool ${this.toolId}`);
+      }
+    }
   }
 
   /**

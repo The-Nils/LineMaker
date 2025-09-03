@@ -23,7 +23,7 @@ class HatchMoireConverter {
 
     // Initialize ConfigManager
     this.configManager = new ConfigManager();
-    this.toolId = "hatchmoiremaker";
+    this.toolId = "moiremaker";
 
     // Initialize InteractiveCanvas for preview area
     this.previewArea = document.querySelector(".preview-area");
@@ -37,6 +37,9 @@ class HatchMoireConverter {
     this.setupEventListeners();
     this.updateSvgSize();
     this.initializeLayers();
+    
+    // Check for URL parameter to load a specific configuration
+    this.checkForUrlConfig();
   }
 
   setupEventListeners() {
@@ -1583,6 +1586,28 @@ class HatchMoireConverter {
     this.configManager.showConfigModal(this.toolId, (config) => {
       this.applyConfiguration(config);
     });
+  }
+
+  /**
+   * Check for URL parameter to load a specific configuration
+   */
+  checkForUrlConfig() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const configId = urlParams.get('loadConfig');
+    
+    if (configId) {
+      // Load the specific configuration
+      const config = this.configManager.getConfig(this.toolId, configId);
+      if (config) {
+        this.applyConfiguration(config);
+        // Clear the URL parameter to prevent reloading on refresh
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.delete('loadConfig');
+        window.history.replaceState({}, document.title, newUrl.toString());
+      } else {
+        console.warn(`Configuration with ID ${configId} not found for tool ${this.toolId}`);
+      }
+    }
   }
 
   getAllParameters() {

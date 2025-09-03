@@ -35,11 +35,131 @@ header p {
     color: #7f8c8d;
 }
 
+.main-layout {
+    display: flex;
+    gap: 3rem;
+    align-items: flex-start;
+}
+
+.tools-section {
+    flex: 1;
+}
+
 .tools-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 2rem;
     justify-items: center;
+}
+
+.recent-projects-section {
+    width: 320px;
+    flex-shrink: 0;
+    background: white;
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    height: fit-content;
+    position: sticky;
+    top: 2rem;
+}
+
+.recent-projects-section h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.recent-projects-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.no-projects-message {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: #7f8c8d;
+}
+
+.no-projects-message svg {
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.no-projects-message p {
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.no-projects-message small {
+    font-size: 0.875rem;
+    opacity: 0.8;
+}
+
+.recent-project-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.recent-project-item:hover {
+    background: #f8f9fa;
+    border-color: #dee2e6;
+    transform: translateX(2px);
+}
+
+.project-thumbnail {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #e9ecef;
+}
+
+.project-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.project-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.project-name {
+    font-weight: 500;
+    color: #2c3e50;
+    font-size: 0.9rem;
+    line-height: 1.3;
+    margin-bottom: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-tool {
+    font-size: 0.8rem;
+    color: #667eea;
+    font-weight: 500;
+    margin-bottom: 0.125rem;
+}
+
+.project-date {
+    font-size: 0.75rem;
+    color: #7f8c8d;
 }
 
 .tool-card {
@@ -132,11 +252,26 @@ header p {
         font-size: 1rem;
     }
     
+    .main-layout {
+        flex-direction: column;
+        gap: 2rem;
+    }
+    
     .tools-grid {
         grid-template-columns: 1fr;
     }
     
     .tool-card {
         padding: 1.5rem;
+    }
+    
+    .recent-projects-section {
+        width: 100%;
+        position: static;
+        order: -1;
+    }
+    
+    .recent-projects-list {
+        max-height: 300px;
     }
 }

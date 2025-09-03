@@ -388,6 +388,114 @@ class ConfigManager {
     }
 
     /**
+     * Get all configurations across all tools, sorted by date
+     * @param {number} limit - Maximum number of configs to return (default: 10)
+     * @returns {Array} Array of configurations sorted by timestamp (newest first)
+     */
+    getRecentConfigs(limit = 10) {
+        const allConfigs = this.getAllConfigs();
+        const recentConfigs = [];
+        
+        // Collect all configurations from all tools
+        Object.keys(allConfigs).forEach(toolId => {
+            if (allConfigs[toolId] && Array.isArray(allConfigs[toolId])) {
+                allConfigs[toolId].forEach(config => {
+                    recentConfigs.push({
+                        ...config,
+                        toolId: toolId
+                    });
+                });
+            }
+        });
+        
+        // Sort by timestamp (newest first) and limit results
+        recentConfigs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        return recentConfigs.slice(0, limit);
+    }
+
+    /**
+     * Get configurations by tool ID
+     * @param {string} toolId - The tool identifier
+     * @param {number} limit - Maximum number of configs to return (optional)
+     * @returns {Array} Array of configurations for the specified tool
+     */
+    getConfigsByTool(toolId, limit = null) {
+        const configs = this.getConfigsForTool(toolId);
+        if (limit) {
+            return configs.slice(0, limit);
+        }
+        return configs;
+    }
+
+    /**
+     * Search configurations by name across all tools
+     * @param {string} searchTerm - Search term to match against config names
+     * @param {number} limit - Maximum number of configs to return (default: 10)
+     * @returns {Array} Array of matching configurations
+     */
+    searchConfigs(searchTerm, limit = 10) {
+        const allConfigs = this.getAllConfigs();
+        const matchingConfigs = [];
+        const searchLower = searchTerm.toLowerCase();
+        
+        Object.keys(allConfigs).forEach(toolId => {
+            if (allConfigs[toolId] && Array.isArray(allConfigs[toolId])) {
+                allConfigs[toolId].forEach(config => {
+                    if (config.name.toLowerCase().includes(searchLower)) {
+                        matchingConfigs.push({
+                            ...config,
+                            toolId: toolId
+                        });
+                    }
+                });
+            }
+        });
+        
+        // Sort by timestamp (newest first) and limit results
+        matchingConfigs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        return matchingConfigs.slice(0, limit);
+    }
+
+    /**
+     * Get configuration statistics
+     * @returns {Object} Statistics about saved configurations
+     */
+    getStats() {
+        const allConfigs = this.getAllConfigs();
+        const stats = {
+            totalConfigs: 0,
+            configsByTool: {},
+            oldestConfig: null,
+            newestConfig: null
+        };
+        
+        const allConfigsList = [];
+        
+        Object.keys(allConfigs).forEach(toolId => {
+            if (allConfigs[toolId] && Array.isArray(allConfigs[toolId])) {
+                const toolConfigCount = allConfigs[toolId].length;
+                stats.configsByTool[toolId] = toolConfigCount;
+                stats.totalConfigs += toolConfigCount;
+                
+                allConfigs[toolId].forEach(config => {
+                    allConfigsList.push({
+                        ...config,
+                        toolId: toolId
+                    });
+                });
+            }
+        });
+        
+        if (allConfigsList.length > 0) {
+            allConfigsList.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            stats.oldestConfig = allConfigsList[0];
+            stats.newestConfig = allConfigsList[allConfigsList.length - 1];
+        }
+        
+        return stats;
+    }
+
+    /**
      * Save all configurations to localStorage
      * @param {Object} configs - The configurations object to save
      */

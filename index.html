@@ -14,8 +14,10 @@
         </header>
         
         <main>
-            <div class="tools-grid">
-                <div class="tool-card">
+            <div class="main-layout">
+                <div class="tools-section">
+                    <div class="tools-grid">
+                        <div class="tool-card">
                     <div class="tool-icon">
                         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                             <!-- Bold diagonal hatching pattern -->
@@ -149,8 +151,120 @@
                 -->
 
                 
+                    </div>
+                </div>
+                
+                <aside class="recent-projects-section">
+                    <h2>Recent Projects</h2>
+                    <div class="recent-projects-list" id="recentProjectsList">
+                        <div class="no-projects-message">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                                <line x1="16" y1="2" x2="16" y2="6"/>
+                                <line x1="8" y1="2" x2="8" y2="6"/>
+                                <line x1="3" y1="10" x2="21" y2="10"/>
+                            </svg>
+                            <p>No saved projects yet</p>
+                            <small>Create and save projects to see them here</small>
+                        </div>
+                    </div>
+                </aside>
             </div>
         </main>
     </div>
+    
+    <script src="configManager.js"></script>
+    <script>
+        class HomePage {
+            constructor() {
+                this.configManager = new ConfigManager();
+                this.loadRecentProjects();
+            }
+            
+            loadRecentProjects() {
+                // Get the last 10 recent configurations across all tools
+                const recentProjects = this.configManager.getRecentConfigs(10);
+                this.displayRecentProjects(recentProjects);
+            }
+            
+            displayRecentProjects(projects) {
+                const container = document.getElementById('recentProjectsList');
+                
+                if (!container) {
+                    console.error('Recent projects container not found');
+                    return;
+                }
+                
+                if (projects.length === 0) {
+                    // Show the "no projects" message (already in HTML)
+                    return;
+                }
+                
+                // Clear container and add recent projects
+                container.innerHTML = '';
+                
+                projects.forEach(project => {
+                    const projectItem = this.createProjectItem(project);
+                    container.appendChild(projectItem);
+                });
+            }
+            
+            createProjectItem(project) {
+                const item = document.createElement('div');
+                item.className = 'recent-project-item';
+                
+                const toolName = this.getToolDisplayName(project.toolId);
+                const date = new Date(project.timestamp).toLocaleDateString();
+                const time = new Date(project.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                // Escape HTML to prevent XSS
+                const safeName = this.escapeHtml(project.name);
+                const safeToolName = this.escapeHtml(toolName);
+                
+                item.innerHTML = `
+                    <div class="project-thumbnail">
+                        <img src="${project.base64Image}" alt="${safeName}" loading="lazy" onerror="this.style.display='none'">
+                    </div>
+                    <div class="project-info">
+                        <div class="project-name">${safeName}</div>
+                        <div class="project-tool">${safeToolName}</div>
+                        <div class="project-date">${date} ${time}</div>
+                    </div>
+                `;
+                
+                // Add click handler to open the project
+                item.addEventListener('click', () => {
+                    this.openProject(project);
+                });
+                
+                return item;
+            }
+            
+            getToolDisplayName(toolId) {
+                const toolNames = {
+                    'hatchmaker': 'HatchMaker',
+                    'moiremaker': 'HatchMoiréMaker'
+                };
+                return toolNames[toolId] || toolId;
+            }
+            
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+            
+            openProject(project) {
+                // Construct the URL with config parameter
+                const toolUrl = `${project.toolId}/index.html?loadConfig=${project.id}`;
+                window.location.href = toolUrl;
+            }
+        }
+        
+        // Initialize homepage when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            new HomePage();
+        });
+    </script>
 </body>
 </html>
