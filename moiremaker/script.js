@@ -915,8 +915,8 @@ class HatchMoireConverter {
       canvasHeight
     );
 
-    // Convert lines to SVG lines
-    layer.svgContent = this.linesToSvgLines(lines);
+    // Convert lines to SVG lines with travel moves shown
+    layer.svgContent = this.linesToSvgWithTravelMoves(lines);
     layer.dragLines = lines;
 
     // Update SVG display
@@ -1146,6 +1146,51 @@ class HatchMoireConverter {
     return svg;
   }
 
+  linesToSvgWithTravelMoves(lines) {
+    let svg = "";
+    const penWidthMm = parseFloat(document.getElementById("penDiameterValue").value) || 0.5;
+    const preventZhopDistance = parseFloat(document.getElementById("preventZhopValue").value) || 2;
+    
+    // Optimize the path first to match G-code generation
+    const optimizedLines = this.optimizeGcodePath(lines);
+    
+    let lastEndPoint = null;
+    
+    optimizedLines.forEach((line, index) => {
+      if (line.length >= 2) {
+        const startPoint = line[0];
+        const endPoint = line[line.length - 1];
+        
+        // Add travel move line if Z-hop would be skipped
+        if (lastEndPoint) {
+          const dx = startPoint.x - lastEndPoint.x;
+          const dy = startPoint.y - lastEndPoint.y;
+          const travelDistance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (travelDistance <= preventZhopDistance && travelDistance > 0.01) {
+            // Add travel line with same style as drawing lines (pen stays down)
+            svg += `    <line x1="${lastEndPoint.x.toFixed(3)}" y1="${lastEndPoint.y.toFixed(3)}" `;
+            svg += `x2="${startPoint.x.toFixed(3)}" y2="${startPoint.y.toFixed(3)}" `;
+            svg += `stroke-width="${penWidthMm.toFixed(3)}"/>\n`;
+          }
+        }
+        
+        // Add the actual drawing lines
+        for (let i = 1; i < line.length; i++) {
+          const x1 = line[i-1].x.toFixed(3);
+          const y1 = line[i-1].y.toFixed(3);
+          const x2 = line[i].x.toFixed(3);
+          const y2 = line[i].y.toFixed(3);
+          svg += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${penWidthMm.toFixed(3)}"/>\n`;
+        }
+        
+        lastEndPoint = endPoint;
+      }
+    });
+    
+    return svg;
+  }
+
   mergeCloseSegments(segments, maxMergeDistancePx) {
     if (segments.length < 2) return segments;
 
@@ -1184,27 +1229,164 @@ class HatchMoireConverter {
     return mergedSegments;
   }
 
+  optimizeGcodePath(lines) {
+    if (lines.length === 0) return lines;
+    
+    const optimizedLines = [];
+    const remainingLines = [...lines];
+    let currentPosition = { x: 0, y: 0 }; // Start at origin
+    
+    // Always start with the line closest to origin
+    let closestIndex = 0;
+    let minDistance = Infinity;
+    
+    for (let i = 0; i < remainingLines.length; i++) {
+      const line = remainingLines[i];
+      if (line.length < 2) continue;
+      
+      const startPoint = line[0];
+      const endPoint = line[line.length - 1];
+      
+      // Check distance to both start and end of line
+      const distToStart = Math.sqrt(
+        Math.pow(startPoint.x - currentPosition.x, 2) + 
+        Math.pow(startPoint.y - currentPosition.y, 2)
+      );
+      const distToEnd = Math.sqrt(
+        Math.pow(endPoint.x - currentPosition.x, 2) + 
+        Math.pow(endPoint.y - currentPosition.y, 2)
+      );
+      
+      const minDistToLine = Math.min(distToStart, distToEnd);
+      if (minDistToLine < minDistance) {
+        minDistance = minDistToLine;
+        closestIndex = i;
+      }
+    }
+    
+    // Process lines using nearest neighbor strategy
+    while (remainingLines.length > 0) {
+      const selectedLine = remainingLines[closestIndex];
+      remainingLines.splice(closestIndex, 1);
+      
+      if (selectedLine.length < 2) continue;
+      
+      const startPoint = selectedLine[0];
+      const endPoint = selectedLine[selectedLine.length - 1];
+      
+      // Determine if we should draw the line forward or backward
+      const distToStart = Math.sqrt(
+        Math.pow(startPoint.x - currentPosition.x, 2) + 
+        Math.pow(startPoint.y - currentPosition.y, 2)
+      );
+      const distToEnd = Math.sqrt(
+        Math.pow(endPoint.x - currentPosition.x, 2) + 
+        Math.pow(endPoint.y - currentPosition.y, 2)
+      );
+      
+      let optimizedLine;
+      if (distToStart <= distToEnd) {
+        // Draw line forward (start to end)
+        optimizedLine = [...selectedLine];
+        currentPosition = { x: endPoint.x, y: endPoint.y };
+      } else {
+        // Draw line backward (end to start) 
+        optimizedLine = [...selectedLine].reverse();
+        currentPosition = { x: startPoint.x, y: startPoint.y };
+      }
+      
+      optimizedLines.push(optimizedLine);
+      
+      // Find next closest line
+      if (remainingLines.length > 0) {
+        closestIndex = 0;
+        minDistance = Infinity;
+        
+        for (let i = 0; i < remainingLines.length; i++) {
+          const line = remainingLines[i];
+          if (line.length < 2) continue;
+          
+          const lineStart = line[0];
+          const lineEnd = line[line.length - 1];
+          
+          const distToStart = Math.sqrt(
+            Math.pow(lineStart.x - currentPosition.x, 2) + 
+            Math.pow(lineStart.y - currentPosition.y, 2)
+          );
+          const distToEnd = Math.sqrt(
+            Math.pow(lineEnd.x - currentPosition.x, 2) + 
+            Math.pow(lineEnd.y - currentPosition.y, 2)
+          );
+          
+          const minDistToLine = Math.min(distToStart, distToEnd);
+          if (minDistToLine < minDistance) {
+            minDistance = minDistToLine;
+            closestIndex = i;
+          }
+        }
+      }
+    }
+    
+    return optimizedLines;
+  }
+
   generateGcode(lines, layerName) {
     const feedRate = parseInt(document.getElementById("feedRateValue").value) || 1500;
     const penDownZ = parseFloat(document.getElementById("penDownZValue").value) || -1;
     const penUpZ = parseFloat(document.getElementById("penUpZValue").value) || 2;
     const preventZhopDistance = parseFloat(document.getElementById("preventZhopValue").value) || 2;
 
+    // Optimize path using closest point strategy
+    const optimizedLines = this.optimizeGcodePath(lines);
+
+    // Calculate travel distance reduction
+    let originalTravelDistance = 0;
+    let optimizedTravelDistance = 0;
+    
+    // Calculate original travel distance
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i-1].length >= 2 && lines[i].length >= 2) {
+        const prevEnd = lines[i-1][lines[i-1].length - 1];
+        const currentStart = lines[i][0];
+        const dx = currentStart.x - prevEnd.x;
+        const dy = currentStart.y - prevEnd.y;
+        originalTravelDistance += Math.sqrt(dx * dx + dy * dy);
+      }
+    }
+    
+    // Calculate optimized travel distance  
+    for (let i = 1; i < optimizedLines.length; i++) {
+      if (optimizedLines[i-1].length >= 2 && optimizedLines[i].length >= 2) {
+        const prevEnd = optimizedLines[i-1][optimizedLines[i-1].length - 1];
+        const currentStart = optimizedLines[i][0];
+        const dx = currentStart.x - prevEnd.x;
+        const dy = currentStart.y - prevEnd.y;
+        optimizedTravelDistance += Math.sqrt(dx * dx + dy * dy);
+      }
+    }
+    
+    const travelReduction = ((originalTravelDistance - optimizedTravelDistance) / originalTravelDistance * 100).toFixed(1);
+
     let gcode = [];
     gcode.push(`; ${layerName} G-code generated by HatchMoiréMaker`);
+    gcode.push(`; Path optimized using closest point strategy`);
+    gcode.push(`; Original travel distance: ${originalTravelDistance.toFixed(2)}mm`);
+    gcode.push(`; Optimized travel distance: ${optimizedTravelDistance.toFixed(2)}mm`);
+    gcode.push(`; Travel reduction: ${travelReduction}%`);
     gcode.push("G21 ; Set units to millimeters");
     gcode.push("G90 ; Absolute positioning");
     gcode.push(`G0 Z${penUpZ} ; Pen up`);
     gcode.push("");
 
+    const canvasHeightMm = this.getCanvasHeight(); // Get canvas height for Y-axis flipping
     let lastEndPoint = null;
     
-    lines.forEach((line, index) => {
+    optimizedLines.forEach((line, index) => {
       if (line.length >= 2) {
         const startPoint = line[0];
         const endPoint = line[line.length - 1];
         
-        // Calculate travel distance from last end point
+        // Calculate travel distance from last end point (using flipped coordinates)
         let travelDistance = 0;
         if (lastEndPoint) {
           const dx = startPoint.x - lastEndPoint.x;
@@ -1212,24 +1394,28 @@ class HatchMoireConverter {
           travelDistance = Math.sqrt(dx * dx + dy * dy);
         }
         
+        // Flip Y coordinate for G-code (SVG: top-left origin, G-code: bottom-left origin)
+        const gcodeStartY = canvasHeightMm - startPoint.y;
+        
         // Move to start of line
-        gcode.push(`G0 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)}`);
+        gcode.push(`G0 X${startPoint.x.toFixed(3)} Y${gcodeStartY.toFixed(3)}`);
         
         // Only do Z-hop if travel distance is greater than threshold
         if (!lastEndPoint || travelDistance > preventZhopDistance) {
           gcode.push(`G0 Z${penDownZ} ; Pen down`);
         }
 
-        // Draw line segments
+        // Draw line segments with Y-axis flipping
         for (let i = 1; i < line.length; i++) {
-          gcode.push(`G1 X${line[i].x.toFixed(3)} Y${line[i].y.toFixed(3)} F${feedRate}`);
+          const gcodeY = canvasHeightMm - line[i].y;
+          gcode.push(`G1 X${line[i].x.toFixed(3)} Y${gcodeY.toFixed(3)} F${feedRate}`);
         }
 
         // Only lift pen if this is the last line or next travel is long
-        const isLastLine = index === lines.length - 1;
+        const isLastLine = index === optimizedLines.length - 1;
         let nextTravelDistance = 0;
-        if (!isLastLine && lines[index + 1] && lines[index + 1].length >= 2) {
-          const nextStart = lines[index + 1][0];
+        if (!isLastLine && optimizedLines[index + 1] && optimizedLines[index + 1].length >= 2) {
+          const nextStart = optimizedLines[index + 1][0];
           const dx = nextStart.x - endPoint.x;
           const dy = nextStart.y - endPoint.y;
           nextTravelDistance = Math.sqrt(dx * dx + dy * dy);
