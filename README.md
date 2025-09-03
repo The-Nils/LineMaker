@@ -36,6 +36,10 @@ This is a **hobby project** with the following disclaimers:
 - 🐛 **Bugs Expected**: Find one? Cool, open an issue. Fix one? Even cooler, send a PR.
 - 📚 **Learning Exercise**: This project is as much about learning to work with AI tools as it is about pen plotting.
 
+## Live Demo
+
+🌐 **Try it online**: [https://the-nils.github.io/LineMaker/](https://the-nils.github.io/LineMaker/)
+
 ## Getting Started
 
 1. Clone this repo
