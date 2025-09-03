@@ -40,7 +40,6 @@ body {
     border-right: 1px solid #dee2e6;
     display: flex;
     flex-direction: column;
-    padding: 20px;
     flex-shrink: 0;
 }
 
@@ -52,12 +51,15 @@ body {
     padding-bottom: 8px;
     margin-bottom: 0;
     border-bottom: 1px solid #eee;
+    padding: 20px;
+
 }
 
 .scrollable-controls {
     flex: 1;
     overflow-y: auto;
     padding-top: 8px;
+    padding: 20px;
 }
 
 .back-button {
