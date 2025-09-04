@@ -11,8 +11,9 @@ I built a pen mount for my CNC machine and needed some tools to generate line ar
 ## Current Tools
 
 ### 🎨 HatchMaker
+
 - **What it does**: Converts images into hatched line art suitable for pen plotting
-- **Features**: 
+- **Features**:
   - CMYK channel separation for multi-color plots
   - Interactive canvas with pan/zoom
   - Drag & drop image upload
@@ -22,12 +23,13 @@ I built a pen mount for my CNC machine and needed some tools to generate line ar
 - **Status**: Working, probably has bugs
 
 ![HatchMaker CMYK Example](assets/screenshots/LineMaker-screenshot-CMYK.png)
-*HatchMaker converting an image to CMYK hatched patterns*
+_HatchMaker converting an image to CMYK hatched patterns_
 
 ![HatchMaker BW Example](assets/screenshots/Lineaker-screenshot-BW.png)
-*HatchMaker black and white line art output*
+_HatchMaker black and white line art output_
 
 ### 🌀 HatchMoiréMaker
+
 - **What it does**: Creates stunning moiré effects by overlaying multiple hatched layers from the same image
 - **Features**:
   - Multi-layer moiré pattern generation
@@ -40,14 +42,16 @@ I built a pen mount for my CNC machine and needed some tools to generate line ar
 - **Status**: Fully functional, optimized for performance
 
 ![HatchMoiréMaker Example](assets/screenshots/moiremaker_screenshot.png)
-*HatchMoiréMaker generating complex moiré interference patterns*
+_HatchMoiréMaker generating complex moiré interference patterns_
 
 ## Coming... Eventually
 
 More tools are planned when I find time to prompt-engineer them into existence:
-- **LineMaker**: Convert images to continuous line drawings
-- **DotMaker**: Stippling and dot-based artwork
-- **SpiralMaker**: Because spirals are cool
+
+- **echolocationMaker**
+- **scribleMaker**
+- **mazeMaker**
+- **orbitMaker**
 
 ## Fair Warning
 
@@ -77,6 +81,7 @@ No build process, no dependencies, no npm hell. Just HTML, CSS, and JavaScript d
 ## Contributing
 
 Contributions are welcome! Whether you're:
+
 - A human who found a bug
 - A human who wants to add features
 - An AI that gained sentience and wants to improve its own work
@@ -104,4 +109,4 @@ MIT License - do whatever you want with this. If it breaks your CNC machine, tha
 
 ---
 
-*Built with AI assistance, caffeine, and questionable life choices. Your mileage may vary.*
+_Built with AI assistance, caffeine, and questionable life choices. Your mileage may vary._
