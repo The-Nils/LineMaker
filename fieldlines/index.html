@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FieldLines - LineMaker</title>
+    <link rel="stylesheet" href="../tool-styles.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="main-layout">
+            <div class="sidebar">
+                <div class="header-section">
+                    <div class="header-row">
+                        <a href="../index.html" class="back-button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5"/>
+                                <path d="M12 19l-7-7 7-7"/>
+                            </svg>
+                        </a>
+                        <h2 class="tool-title">FieldLines</h2>
+                    </div>
+                    <button class="action-btn full-width" id="clearPointsBtn">Clear Points</button>
+                </div>
+                
+                <div class="scrollable-controls">
+
+                    <div class="control-group">
+                        <h3>Canvas Size</h3>
+                        <div class="input-row">
+                            <label>Width:</label>
+                            <input type="number" id="canvasWidthValue" min="10" max="2000" step="1" value="200">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Height:</label>
+                            <input type="number" id="canvasHeightValue" min="10" max="2000" step="1" value="200">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Line Settings</h3>
+                        <div class="input-row">
+                            <label>Line Angle:</label>
+                            <input type="number" id="lineAngleValue" min="0" max="360" step="1" value="0">
+                            <span class="unit-label">°</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Line Spacing:</label>
+                            <input type="number" id="lineSpacingValue" min="1" max="100" step="1" value="10">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Line Tension:</label>
+                            <input type="range" id="lineTension" min="0" max="1" step="0.01" value="0.5">
+                            <input type="number" id="lineTensionValue" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>New Point Settings</h3>
+                        <div class="input-row">
+                            <label>Mode:</label>
+                            <input type="radio" id="newPointModeAttract" name="newPointMode" value="attract" checked>
+                            <label for="newPointModeAttract">Attract</label>
+                            <input type="radio" id="newPointModeRepulse" name="newPointMode" value="repulse">
+                            <label for="newPointModeRepulse">Repulse</label>
+                        </div>
+                        <div class="input-row">
+                            <label>Force:</label>
+                            <input type="range" id="newPointForce" min="0" max="100" step="1" value="50">
+                            <input type="number" id="newPointForceValue" min="0" max="100" step="1" value="50">
+                        </div>
+                        <div class="input-row">
+                            <label>Radius:</label>
+                            <input type="range" id="newPointRadius" min="1" max="500" step="1" value="100">
+                            <input type="number" id="newPointRadiusValue" min="1" max="500" step="1" value="100">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label for="newPointAllowCrossing">Allow Crossing:</label>
+                            <input type="checkbox" id="newPointAllowCrossing">
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="preview-area">
+                <div class="canvas-controls" style="position: absolute; top: 10px; right: 10px; z-index: 100; display: flex; gap: 5px;">
+                    <button id="fitToContentBtn" class="canvas-control-btn" title="Fit to Content">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                    </button>
+                    <button id="resetViewBtn" class="canvas-control-btn" title="Reset View">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 4v6h6M23 20v-6h-6"/>
+                            <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="svg-stack">
+                    <svg id="outputSvg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+                        <g id="grid-lines"></g>
+                        <g id="field-points"></g>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Point configuration modal -->
+    <div id="pointModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h3>Point Configuration</h3>
+            <div class="control-group">
+                <div class="input-row">
+                    <label>Mode:</label>
+                    <input type="radio" id="pointModeAttract" name="pointMode" value="attract">
+                    <label for="pointModeAttract">Attract</label>
+                    <input type="radio" id="pointModeRepulse" name="pointMode" value="repulse">
+                    <label for="pointModeRepulse">Repulse</label>
+                </div>
+                <div class="input-row">
+                    <label>Force:</label>
+                    <input type="range" id="pointForce" min="0" max="100" step="1" value="50">
+                    <input type="number" id="pointForceValue" min="0" max="100" step="1" value="50">
+                </div>
+                <div class="input-row">
+                    <label>Radius:</label>
+                    <input type="range" id="pointRadius" min="1" max="500" step="1" value="100">
+                    <input type="number" id="pointRadiusValue" min="1" max="500" step="1" value="100">
+                    <span class="unit-label">mm</span>
+                </div>
+                <div class="input-row">
+                    <label for="pointAllowCrossing">Allow Crossing:</label>
+                    <input type="checkbox" id="pointAllowCrossing">
+                </div>
+            </div>
+            <button id="deletePointBtn" class="action-btn">Delete Point</button>
+        </div>
+    </div>
+
+    <script src="../interactiveCanvas.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
