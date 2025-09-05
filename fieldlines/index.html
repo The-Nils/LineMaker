@@ -21,7 +21,10 @@
                         </a>
                         <h2 class="tool-title">FieldLines</h2>
                     </div>
-                    <button class="action-btn full-width" id="clearPointsBtn">Clear Points</button>
+                    <div class="button-row">
+                        <button class="action-btn" id="drawModeBtn">Draw Mode</button>
+                        <button class="action-btn" id="clearPointsBtn">Clear All</button>
+                    </div>
                 </div>
                 
                 <div class="scrollable-controls">
@@ -70,8 +73,8 @@
                         </div>
                         <div class="input-row">
                             <label>Force:</label>
-                            <input type="range" id="newPointForce" min="0" max="100" step="1" value="50">
-                            <input type="number" id="newPointForceValue" min="0" max="100" step="1" value="50">
+                            <input type="range" id="newPointForce" min="0" max="1000" step="1" value="50">
+                            <input type="number" id="newPointForceValue" min="0" max="1000" step="1" value="50">
                         </div>
                         <div class="input-row">
                             <label>Radius:</label>
@@ -80,8 +83,17 @@
                             <span class="unit-label">mm</span>
                         </div>
                         <div class="input-row">
+                            <label>Falloff:</label>
+                            <input type="range" id="newPointFalloff" min="0.1" max="5" step="0.1" value="1">
+                            <input type="number" id="newPointFalloffValue" min="0.1" max="5" step="0.1" value="1">
+                        </div>
+                        <div class="input-row">
                             <label for="newPointAllowCrossing">Allow Crossing:</label>
                             <input type="checkbox" id="newPointAllowCrossing">
+                        </div>
+                        <div class="input-row">
+                            <label for="showVisualization">Show Force Field:</label>
+                            <input type="checkbox" id="showVisualization" checked>
                         </div>
                     </div>
 
@@ -104,8 +116,10 @@
                 </div>
                 <div class="svg-stack">
                     <svg id="outputSvg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+                        <rect width="100%" height="100%" fill="white"/>
                         <g id="grid-lines"></g>
                         <g id="field-points"></g>
+                        <g id="drawn-lines"></g>
                     </svg>
                 </div>
             </div>
@@ -127,14 +141,19 @@
                 </div>
                 <div class="input-row">
                     <label>Force:</label>
-                    <input type="range" id="pointForce" min="0" max="100" step="1" value="50">
-                    <input type="number" id="pointForceValue" min="0" max="100" step="1" value="50">
+                    <input type="range" id="pointForce" min="0" max="1000" step="1" value="50">
+                    <input type="number" id="pointForceValue" min="0" max="1000" step="1" value="50">
                 </div>
                 <div class="input-row">
                     <label>Radius:</label>
                     <input type="range" id="pointRadius" min="1" max="500" step="1" value="100">
                     <input type="number" id="pointRadiusValue" min="1" max="500" step="1" value="100">
                     <span class="unit-label">mm</span>
+                </div>
+                <div class="input-row">
+                    <label>Falloff:</label>
+                    <input type="range" id="pointFalloff" min="0.1" max="5" step="0.1" value="1">
+                    <input type="number" id="pointFalloffValue" min="0.1" max="5" step="0.1" value="1">
                 </div>
                 <div class="input-row">
                     <label for="pointAllowCrossing">Allow Crossing:</label>
