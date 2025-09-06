@@ -20,7 +20,6 @@ I built a pen mount for my CNC machine and needed some tools to generate line ar
   - Configurable line patterns, spacing, and angles
   - SVG and G-code export
   - Save/load configurations
-- **Status**: Working, probably has bugs
 
 ![HatchMaker CMYK Example](assets/screenshots/LineMaker-screenshot-CMYK.png)
 _HatchMaker converting an image to CMYK hatched patterns_
@@ -39,10 +38,25 @@ _HatchMaker black and white line art output_
   - Optimized SVG and G-code generation with 70-90% file size reduction
   - Travel move visualization for continuous pen-down drawing
   - Configuration save/load with import/export capabilities
-- **Status**: Fully functional, optimized for performance
 
 ![HatchMoiréMaker Example](assets/screenshots/moiremaker_screenshot.png)
 _HatchMoiréMaker generating complex moiré interference patterns_
+
+### ⚡ FieldLines
+
+- **What it does**: Creates organic field line patterns by simulating force fields from points and drawn lines
+- **Features**:
+  - Interactive point placement with attract/repulse modes
+  - Photoshop-style curve editor for precise force falloff control
+  - Draw custom field lines directly on canvas
+  - Multi-layer system with independent parameters per layer
+  - Real-time field visualization and line deformation
+  - Advanced recursive subdivision for smooth curves
+  - Configuration save/load system
+  - SVG and G-code export with travel optimization
+
+![FieldLines Example](assets/screenshots/fieldlines-screenshot.png)
+_FieldLines generating organic patterns through simulated force fields_
 
 ## Coming... Eventually
 
@@ -70,6 +84,7 @@ This is a **hobby project** with the following disclaimers:
 3. Choose your tool:
    - **HatchMaker**: For CMYK channel separation and traditional hatching
    - **HatchMoiréMaker**: For complex moiré interference patterns
+   - **FieldLines**: For organic field line patterns using force field simulation
 4. Upload an image
 5. Fiddle with settings until it looks good
 6. Export SVG or G-code
