@@ -20,12 +20,23 @@
     transition: background-color 0.2s ease;
 }
 
+.layer-edit-icon {
+    margin-right: 8px;
+    opacity: 0.5;
+    transition: opacity 0.2s ease;
+    flex-shrink: 0;
+}
+
 .layer-item:last-child {
     border-bottom: none;
 }
 
 .layer-item:hover {
     background-color: #e9ecef;
+}
+
+.layer-item:hover .layer-edit-icon {
+    opacity: 0.8;
 }
 
 .layer-item.selected {
@@ -35,6 +46,10 @@
 
 .layer-item.selected:hover {
     background-color: #0056b3;
+}
+
+.layer-item.selected .layer-edit-icon {
+    opacity: 0.9;
 }
 
 .layer-color-indicator {

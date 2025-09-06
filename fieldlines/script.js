@@ -56,7 +56,7 @@ class FieldLines {
         document.getElementById('lineSpacingValue').addEventListener('input', () => this.updateSelectedLayerProperty('spacing', parseFloat(document.getElementById('lineSpacingValue').value)));
         document.getElementById('layerOffsetXValue').addEventListener('input', () => this.updateSelectedLayerProperty('offsetX', parseFloat(document.getElementById('layerOffsetXValue').value)));
         document.getElementById('layerOffsetYValue').addEventListener('input', () => this.updateSelectedLayerProperty('offsetY', parseFloat(document.getElementById('layerOffsetYValue').value)));
-        this.syncInputs('lineTension', 'lineTensionValue', () => this.updateSelectedLayerProperty('tension', parseFloat(document.getElementById('lineTensionValue').value)));
+        document.getElementById('maxSegmentLengthValue').addEventListener('input', () => this.updateSelectedLayerProperty('maxSegmentLength', parseFloat(document.getElementById('maxSegmentLengthValue').value)));
 
         // Layer panel event delegation
         document.getElementById('layerList').addEventListener('click', (e) => {
@@ -256,8 +256,8 @@ class FieldLines {
                 offsetX: 0,
                 offsetY: 0,
                 angle: 0 + i * 15, // Vary angle for each layer
-                spacing: 10,
-                tension: 0.5,
+                spacing: 1,
+                maxSegmentLength: 2, // mm
             });
         }
         this.updateSvgStack();
@@ -336,6 +336,10 @@ class FieldLines {
             layerItem.dataset.layerIndex = index;
             
             layerItem.innerHTML = `
+                <svg class="layer-edit-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
                 <div class="layer-color-indicator" style="background-color: ${layer.color}"></div>
                 <div class="layer-info">
                     <span class="layer-name">Layer ${index + 1}</span>
@@ -392,8 +396,7 @@ class FieldLines {
         document.getElementById("lineSpacingValue").value = layer.spacing;
         document.getElementById("layerOffsetXValue").value = layer.offsetX;
         document.getElementById("layerOffsetYValue").value = layer.offsetY;
-        document.getElementById("lineTensionValue").value = layer.tension;
-        document.getElementById("lineTension").value = layer.tension;
+        document.getElementById("maxSegmentLengthValue").value = layer.maxSegmentLength;
     }
 
     updateSelectedLayerProperty(property, value) {
@@ -414,6 +417,9 @@ class FieldLines {
                 this.generateLayerLines(this.selectedLayerIndex);
                 this.draw();
             }, 100); // 100ms debounce
+        } else if (property === 'maxSegmentLength') {
+            // Subdivision parameter only affects drawing, not line generation
+            this.draw();
         } else {
             this.draw();
         }
@@ -436,8 +442,8 @@ class FieldLines {
             offsetX: 0,
             offsetY: 0,
             angle: 0 + newLayerIndex * 15,
-            spacing: 10,
-            tension: 0.5,
+            spacing: 1,
+            maxSegmentLength: 2, // mm
         });
 
         this.updateSvgStack();
@@ -722,10 +728,7 @@ class FieldLines {
                             const direction = fieldPoint.mode === 'attract' ? -1 : 1;
 
                             if (!fieldPoint.allowCrossing) {
-                                // Apply crossing prevention based on layer tension
-                                // High tension = strict crossing prevention, Low tension = allow more crossing
-                                const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
-                                force = Math.min(force, dist / crossingStrength);
+                                force = Math.min(force, dist);
                             }
 
                             dx += Math.cos(angle) * force * direction;
@@ -745,10 +748,7 @@ class FieldLines {
                                 const direction = drawnLine.mode === 'attract' ? -1 : 1;
 
                                 if (!drawnLine.allowCrossing) {
-                                    // Apply crossing prevention based on layer tension
-                                    // High tension = strict crossing prevention, Low tension = allow more crossing
-                                    const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
-                                    force = Math.min(force, dist / crossingStrength);
+                                    force = Math.min(force, dist);
                                 }
 
                                 dx += Math.cos(angle) * force * direction;
@@ -767,16 +767,13 @@ class FieldLines {
                     };
                 });
 
-                // Second pass: adaptively subdivide based on deformation
-                const adaptiveLine = this.adaptiveSubdivision(deformedLine, layer);
-
-                // Apply tension
-                const smoothedLine = this.smoothLine(adaptiveLine, layer.tension);
+                // Second pass: recursively subdivide segments that are too long
+                const finalLine = this.recursiveSubdivision(deformedLine, layer);
 
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                let d = `M ${smoothedLine[0].x} ${smoothedLine[0].y}`;
-                for (let i = 1; i < smoothedLine.length; i++) {
-                    d += ` L ${smoothedLine[i].x} ${smoothedLine[i].y}`;
+                let d = `M ${finalLine[0].x} ${finalLine[0].y}`;
+                for (let i = 1; i < finalLine.length; i++) {
+                    d += ` L ${finalLine[i].x} ${finalLine[i].y}`;
                 }
                 path.setAttribute('d', d);
                 path.setAttribute('stroke', layer.color);
@@ -854,194 +851,109 @@ class FieldLines {
         }
     }
 
-    adaptiveSubdivision(line, layer) {
-        const result = [];
-        const maxDistance = 5; // Maximum allowed distance between consecutive points (in pixels)
-        const maxTotalPoints = 1000; // Reduced hard limit on total points
+    recursiveSubdivision(line, layer) {
+        const maxSegmentLengthPx = layer.maxSegmentLength * this.pixelsPerMm;
+        const maxTotalPoints = 5000; // Safety limit to prevent infinite recursion
         
-        for (let i = 0; i < line.length - 1; i++) {
-            const current = line[i];
-            const next = line[i + 1];
-            
-            result.push(current);
-            
-            // Safety check: stop if we're approaching the point limit
-            if (result.length >= maxTotalPoints) {
-                console.warn('Hit maximum point limit in adaptive subdivision');
-                break;
+        const subdivideSegment = (point1, point2, depth = 0) => {
+            // Safety check: prevent infinite recursion
+            if (depth > 10 || this.totalPoints > maxTotalPoints) {
+                return [point2]; // Just return the end point
             }
             
-            // Calculate distance between current and next point after deformation
-            const dx = next.x - current.x;
-            const dy = next.y - current.y;
+            // Calculate distance between deformed points
+            const dx = point2.x - point1.x;
+            const dy = point2.y - point1.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             
-            // Only subdivide if points are too far apart
-            if (distance > maxDistance) {
-                const subdivisions = Math.min(3, Math.ceil(distance / maxDistance) - 1);
-                const remainingCapacity = maxTotalPoints - result.length;
-                const actualSubdivisions = Math.min(subdivisions, remainingCapacity);
-                
-                // Add subdivided points
-                for (let sub = 1; sub <= actualSubdivisions; sub++) {
-                    const t = sub / (actualSubdivisions + 1);
-                    const interpOriginalX = current.originalX + (next.originalX - current.originalX) * t;
-                    const interpOriginalY = current.originalY + (next.originalY - current.originalY) * t;
-                    
-                    // Apply layer offset to interpolated position
-                    const interpX = interpOriginalX + (layer.offsetX * this.pixelsPerMm);
-                    const interpY = interpOriginalY + (layer.offsetY * this.pixelsPerMm);
-                    
-                    // Calculate deformation for interpolated point
-                    let dx = 0, dy = 0;
-                    this.points.forEach(fieldPoint => {
-                        const dist = Math.sqrt(Math.pow(interpX - fieldPoint.x, 2) + Math.pow(interpY - fieldPoint.y, 2));
-                        if (dist < fieldPoint.radius) {
-                            const falloff = fieldPoint.falloff || 1;
-                            const normalizedDist = dist / fieldPoint.radius;
-                            let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
-                            const angle = Math.atan2(interpY - fieldPoint.y, interpX - fieldPoint.x);
-                            const direction = fieldPoint.mode === 'attract' ? -1 : 1;
-                            
-                            if (!fieldPoint.allowCrossing) {
-                                // Apply crossing prevention based on layer tension
-                                // High tension = strict crossing prevention, Low tension = allow more crossing
-                                const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
-                                force = Math.min(force, dist / crossingStrength);
-                            }
-                            
-                            dx += Math.cos(angle) * force * direction;
-                            dy += Math.sin(angle) * force * direction;
-                        }
-                    });
-                    
-                    this.drawnLines.forEach(drawnLine => {
-                        for (let j = 0; j < drawnLine.points.length; j++) {
-                            const p2 = drawnLine.points[j];
-                            const dist = Math.sqrt(Math.pow(interpX - p2.x, 2) + Math.pow(interpY - p2.y, 2));
-                            if (dist < drawnLine.radius) {
-                                const falloff = drawnLine.falloff || 1;
-                                const normalizedDist = dist / drawnLine.radius;
-                                let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
-                                const angle = Math.atan2(interpY - p2.y, interpX - p2.x);
-                                const direction = drawnLine.mode === 'attract' ? -1 : 1;
-                                
-                                if (!drawnLine.allowCrossing) {
-                                    // Apply crossing prevention based on layer tension
-                                    // High tension = strict crossing prevention, Low tension = allow more crossing
-                                    const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
-                                    force = Math.min(force, dist / crossingStrength);
-                                }
-                                
-                                dx += Math.cos(angle) * force * direction;
-                                dy += Math.sin(angle) * force * direction;
-                            }
-                        }
-                    });
-                    
-                    result.push({
-                        x: interpX + dx,
-                        y: interpY + dy,
-                        originalX: interpOriginalX,
-                        originalY: interpOriginalY
-                    });
-                }
+            // If segment is short enough, no subdivision needed
+            if (distance <= maxSegmentLengthPx) {
+                return [point2];
             }
-        }
+            
+            // Create midpoint by interpolating original positions
+            const midOriginalX = (point1.originalX + point2.originalX) / 2;
+            const midOriginalY = (point1.originalY + point2.originalY) / 2;
+            
+            // Apply layer offset to interpolated position
+            const midOffsetX = midOriginalX + (layer.offsetX * this.pixelsPerMm);
+            const midOffsetY = midOriginalY + (layer.offsetY * this.pixelsPerMm);
+            
+            // Calculate field deformation for midpoint
+            let dx_deform = 0, dy_deform = 0;
+            
+            // Apply field point forces
+            this.points.forEach(fieldPoint => {
+                const dist = Math.sqrt(Math.pow(midOffsetX - fieldPoint.x, 2) + Math.pow(midOffsetY - fieldPoint.y, 2));
+                if (dist < fieldPoint.radius) {
+                    const falloff = fieldPoint.falloff || 1;
+                    const normalizedDist = dist / fieldPoint.radius;
+                    let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
+                    const angle = Math.atan2(midOffsetY - fieldPoint.y, midOffsetX - fieldPoint.x);
+                    const direction = fieldPoint.mode === 'attract' ? -1 : 1;
+                    
+                    if (!fieldPoint.allowCrossing) {
+                        force = Math.min(force, dist);
+                    }
+                    
+                    dx_deform += Math.cos(angle) * force * direction;
+                    dy_deform += Math.sin(angle) * force * direction;
+                }
+            });
+            
+            // Apply drawn line forces
+            this.drawnLines.forEach(drawnLine => {
+                for (let j = 0; j < drawnLine.points.length; j++) {
+                    const p2 = drawnLine.points[j];
+                    const dist = Math.sqrt(Math.pow(midOffsetX - p2.x, 2) + Math.pow(midOffsetY - p2.y, 2));
+                    if (dist < drawnLine.radius) {
+                        const falloff = drawnLine.falloff || 1;
+                        const normalizedDist = dist / drawnLine.radius;
+                        let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
+                        const angle = Math.atan2(midOffsetY - p2.y, midOffsetX - p2.x);
+                        const direction = drawnLine.mode === 'attract' ? -1 : 1;
+                        
+                        if (!drawnLine.allowCrossing) {
+                            force = Math.min(force, dist);
+                        }
+                        
+                        dx_deform += Math.cos(angle) * force * direction;
+                        dy_deform += Math.sin(angle) * force * direction;
+                    }
+                }
+            });
+            
+            // Create the deformed midpoint
+            const midPoint = {
+                x: midOffsetX + dx_deform,
+                y: midOffsetY + dy_deform,
+                originalX: midOriginalX,
+                originalY: midOriginalY
+            };
+            
+            this.totalPoints++;
+            
+            // Recursively subdivide both halves
+            const firstHalf = subdivideSegment(point1, midPoint, depth + 1);
+            const secondHalf = subdivideSegment(midPoint, point2, depth + 1);
+            
+            return [...firstHalf, ...secondHalf];
+        };
         
-        // Don't forget the last point
-        if (line.length > 0) {
-            result.push(line[line.length - 1]);
+        // Initialize point counter
+        this.totalPoints = line.length;
+        
+        const result = [line[0]]; // Start with first point
+        
+        // Process each segment
+        for (let i = 0; i < line.length - 1; i++) {
+            const subdivided = subdivideSegment(line[i], line[i + 1]);
+            result.push(...subdivided);
         }
         
         return result;
     }
 
-    smoothLine(line, tension) {
-        if (line.length < 3) return line;
-        
-        // REVERSED TENSION LOGIC:
-        // tension: 1 = straight lines (ignore field forces), 0 = maximum field influence
-        
-        if (tension >= 0.99) {
-            // High tension = return to straight line between start and end points
-            const result = [];
-            const startPoint = line[0];
-            const endPoint = line[line.length - 1];
-            
-            for (let i = 0; i < line.length; i++) {
-                const t = i / (line.length - 1);
-                result.push({
-                    x: startPoint.originalX + (endPoint.originalX - startPoint.originalX) * t,
-                    y: startPoint.originalY + (endPoint.originalY - startPoint.originalY) * t
-                });
-            }
-            return result;
-        }
-        
-        // Low tension = allow maximum field influence + smoothing
-        const fieldInfluenceStrength = 1 - tension; // 0 to 1
-        const smoothed = [...line];
-        
-        // Apply field influence blending - lower tension allows more deformation
-        const influencedLine = smoothed.map(point => {
-            // Blend between original straight position and field-deformed position
-            const straightX = point.originalX;
-            const straightY = point.originalY;
-            const deformedX = point.x;
-            const deformedY = point.y;
-            
-            return {
-                x: straightX + (deformedX - straightX) * fieldInfluenceStrength,
-                y: straightY + (deformedY - straightY) * fieldInfluenceStrength,
-                originalX: point.originalX,
-                originalY: point.originalY
-            };
-        });
-        
-        // Additional smoothing passes for low tension (more organic curves)
-        const smoothingPasses = Math.ceil(fieldInfluenceStrength * 12); // 0-12 passes
-        const maxWindowSize = Math.ceil(fieldInfluenceStrength * Math.min(30, line.length * 0.4));
-        
-        let result = [...influencedLine];
-        
-        for (let pass = 0; pass < smoothingPasses; pass++) {
-            // Larger windows for more dramatic smoothing
-            const windowSize = Math.max(1, Math.floor(maxWindowSize * (1 - pass / (smoothingPasses + 1))));
-            
-            const passResult = [];
-            for (let i = 0; i < result.length; i++) {
-                let avgX = 0, avgY = 0;
-                let totalWeight = 0;
-                
-                // Enhanced Gaussian weighting for more dramatic smoothing
-                for (let j = -windowSize; j <= windowSize; j++) {
-                    const idx = i + j;
-                    if (idx >= 0 && idx < result.length) {
-                        const weight = Math.exp(-Math.pow(j / (windowSize * 0.3), 2)); // Stronger Gaussian falloff
-                        avgX += result[idx].x * weight;
-                        avgY += result[idx].y * weight;
-                        totalWeight += weight;
-                    }
-                }
-                
-                if (totalWeight > 0) {
-                    passResult.push({ 
-                        x: avgX / totalWeight, 
-                        y: avgY / totalWeight,
-                        originalX: result[i].originalX,
-                        originalY: result[i].originalY
-                    });
-                } else {
-                    passResult.push({ ...result[i] });
-                }
-            }
-            
-            result = passResult;
-        }
-        
-        return result;
-    }
 
     // Configuration Management
     saveConfiguration() {
@@ -1117,9 +1029,9 @@ class FieldLines {
                 color: layer.color,
                 angle: layer.angle,
                 spacing: layer.spacing,
-                tension: layer.tension,
                 offsetX: layer.offsetX,
-                offsetY: layer.offsetY
+                offsetY: layer.offsetY,
+                maxSegmentLength: layer.maxSegmentLength
             })),
             activeLayerIndex: this.activeLayerIndex,
             
@@ -1142,18 +1054,20 @@ class FieldLines {
         // Apply new point defaults
         document.getElementById('newPointForceValue').value = params.newPointForce || "50";
         document.getElementById('newPointForce').value = params.newPointForce || "50";
-        document.getElementById('newPointRadiusValue').value = params.newPointRadius || "100";
-        document.getElementById('newPointRadius').value = params.newPointRadius || "100";
-        document.getElementById('newPointFalloffValue').value = params.newPointFalloff || "1";
-        document.getElementById('newPointFalloff').value = params.newPointFalloff || "1";
+        document.getElementById('newPointRadiusValue').value = params.newPointRadius || "24";
+        document.getElementById('newPointRadius').value = params.newPointRadius || "24";
+        document.getElementById('newPointFalloffValue').value = params.newPointFalloff || "0.7";
+        document.getElementById('newPointFalloff').value = params.newPointFalloff || "0.7";
         
         if (params.newPointMode) {
             document.querySelector(`input[name="newPointMode"][value="${params.newPointMode}"]`).checked = true;
+        } else {
+            document.querySelector(`input[name="newPointMode"][value="repulse"]`).checked = true;
         }
-        document.getElementById('newPointAllowCrossing').checked = params.newPointAllowCrossing || false;
+        document.getElementById('newPointAllowCrossing').checked = params.newPointAllowCrossing !== undefined ? params.newPointAllowCrossing : true;
         
         // Apply visualization setting
-        document.getElementById('showVisualization').checked = params.showVisualization !== undefined ? params.showVisualization : true;
+        document.getElementById('showVisualization').checked = params.showVisualization !== undefined ? params.showVisualization : false;
         
         // Clear existing layers and their SVGs
         this.layers.forEach(layer => {
@@ -1176,10 +1090,10 @@ class FieldLines {
                 name: 'Layer 1',
                 color: '#000000',
                 angle: 0,
-                spacing: 10,
-                tension: 0.5,
+                spacing: 1,
                 offsetX: 0,
                 offsetY: 0,
+                maxSegmentLength: 2,
                 lines: [],
                 svg: null,
                 group: null
