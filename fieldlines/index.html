@@ -25,6 +25,48 @@
                         <button class="action-btn" id="drawModeBtn">Draw Mode</button>
                         <button class="action-btn" id="clearPointsBtn">Clear All</button>
                     </div>
+                    <div class="button-row">
+                        <button class="action-btn" id="saveConfigBtn">Save Config</button>
+                        <button class="action-btn" id="loadConfigBtn">Load Config</button>
+                    </div>
+                    
+                    <div class="download-section">
+                        <div class="download-dropdown">
+                            <button class="download-btn primary compact" id="svgDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                SVG
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="svgDropdown">
+                                <a href="#" id="downloadSvgBtn">Combined SVG</a>
+                                <a href="#" id="downloadIndividualSvgBtn">Individual Layers SVG</a>
+                            </div>
+                        </div>
+                        
+                        <div class="download-dropdown">
+                            <button class="download-btn secondary compact" id="gcodeDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                G-code
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="gcodeDropdown">
+                                <a href="#" id="downloadGcodeBtn">Combined G-code</a>
+                                <a href="#" id="downloadIndividualGcodeBtn">Individual Layers G-code</a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="scrollable-controls">
@@ -44,7 +86,62 @@
                     </div>
 
                     <div class="control-group">
-                        <h3>Line Settings</h3>
+                        <h3>Pen Settings</h3>
+                        <div class="input-row">
+                            <label>Pen Diameter:</label>
+                            <input type="number" id="penDiameterValue" min="0.1" max="10" step="0.1" value="0.5">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>G-code Settings</h3>
+                        <div class="input-row">
+                            <label>Feed Rate:</label>
+                            <input type="number" id="feedRateValue" min="50" max="10000" step="10" value="1500">
+                            <span class="unit-label">mm/min</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Pen Down Z:</label>
+                            <input type="number" id="penDownZValue" min="-20" max="5" step="0.01" value="-1">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Pen Up Z:</label>
+                            <input type="number" id="penUpZValue" min="0" max="50" step="0.01" value="2">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Skip Z-hop for moves &lt;</label>
+                            <input type="number" id="preventZhopValue" min="0" max="50" step="0.1" value="2">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Layers</h3>
+                        <div class="input-row">
+                            <button class="action-btn" id="addLayerBtn">Add Layer</button>
+                        </div>
+                        
+                        <div class="layer-panel">
+                            <div id="layerList" class="layer-list">
+                                <!-- Layer items will be generated here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="layerEditor" style="display: none;">
+                        <h3>Layer Editor</h3>
+                        <div class="layer-editor-header">
+                            <div class="layer-color-indicator" id="currentLayerColor"></div>
+                            <span id="currentLayerName">Layer 1</span>
+                        </div>
+                        
+                        <div class="input-row">
+                            <label>Color:</label>
+                            <input type="color" id="layerColorValue" value="#000000">
+                        </div>
                         <div class="input-row">
                             <label>Line Angle:</label>
                             <input type="number" id="lineAngleValue" min="0" max="360" step="1" value="0">
@@ -56,9 +153,22 @@
                             <span class="unit-label">mm</span>
                         </div>
                         <div class="input-row">
+                            <label>X Offset:</label>
+                            <input type="number" id="layerOffsetXValue" min="-100" max="100" step="0.1" value="0">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Y Offset:</label>
+                            <input type="number" id="layerOffsetYValue" min="-100" max="100" step="0.1" value="0">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
                             <label>Line Tension:</label>
                             <input type="range" id="lineTension" min="0" max="1" step="0.01" value="0.5">
                             <input type="number" id="lineTensionValue" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="input-row">
+                            <button class="action-btn" id="removeCurrentLayerBtn" style="background: #e74c3c; color: white;">Remove This Layer</button>
                         </div>
                     </div>
 
@@ -66,10 +176,16 @@
                         <h3>New Point Settings</h3>
                         <div class="input-row">
                             <label>Mode:</label>
-                            <input type="radio" id="newPointModeAttract" name="newPointMode" value="attract" checked>
-                            <label for="newPointModeAttract">Attract</label>
-                            <input type="radio" id="newPointModeRepulse" name="newPointMode" value="repulse">
-                            <label for="newPointModeRepulse">Repulse</label>
+                            <div style="display: flex; gap: 15px;">
+                                <div>
+                                    <input type="radio" id="newPointModeAttract" name="newPointMode" value="attract" checked>
+                                    <label for="newPointModeAttract">Attract</label>
+                                </div>
+                                <div>
+                                    <input type="radio" id="newPointModeRepulse" name="newPointMode" value="repulse">
+                                    <label for="newPointModeRepulse">Repulse</label>
+                                </div>
+                            </div>
                         </div>
                         <div class="input-row">
                             <label>Force:</label>
@@ -114,10 +230,10 @@
                         </svg>
                     </button>
                 </div>
-                <div class="svg-stack">
-                    <svg id="outputSvg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+                <div class="svg-stack" id="svgContainer">
+                    <!-- Layer SVGs will be dynamically created here -->
+                    <svg id="fieldPointsSvg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" style="position: absolute; top: 0; left: 0; pointer-events: auto;">
                         <rect width="100%" height="100%" fill="white"/>
-                        <g id="grid-lines"></g>
                         <g id="field-points"></g>
                         <g id="drawn-lines"></g>
                     </svg>
@@ -134,10 +250,16 @@
             <div class="control-group">
                 <div class="input-row">
                     <label>Mode:</label>
-                    <input type="radio" id="pointModeAttract" name="pointMode" value="attract">
-                    <label for="pointModeAttract">Attract</label>
-                    <input type="radio" id="pointModeRepulse" name="pointMode" value="repulse">
-                    <label for="pointModeRepulse">Repulse</label>
+                    <div style="display: flex; gap: 15px;">
+                        <div>
+                            <input type="radio" id="pointModeAttract" name="pointMode" value="attract">
+                            <label for="pointModeAttract">Attract</label>
+                        </div>
+                        <div>
+                            <input type="radio" id="pointModeRepulse" name="pointMode" value="repulse">
+                            <label for="pointModeRepulse">Repulse</label>
+                        </div>
+                    </div>
                 </div>
                 <div class="input-row">
                     <label>Force:</label>
@@ -160,10 +282,11 @@
                     <input type="checkbox" id="pointAllowCrossing">
                 </div>
             </div>
-            <button id="deletePointBtn" class="action-btn">Delete Point</button>
+            <button id="deletePointBtn" class="action-btn" style="background: #e74c3c; color: white;">Delete Point</button>
         </div>
     </div>
 
+    <script src="../configManager.js"></script>
     <script src="../interactiveCanvas.js"></script>
     <script src="script.js"></script>
 </body>

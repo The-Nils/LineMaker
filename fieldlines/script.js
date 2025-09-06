@@ -1,14 +1,13 @@
 class FieldLines {
     constructor() {
-        this.svg = document.getElementById('outputSvg');
-        this.gridLinesGroup = document.getElementById('grid-lines');
+        this.fieldPointsSvg = document.getElementById('fieldPointsSvg');
         this.fieldPointsGroup = document.getElementById('field-points');
         this.drawnLinesGroup = document.getElementById('drawn-lines');
         this.modal = document.getElementById('pointModal');
         this.selectedPointIndex = -1;
+        this.svgContainer = document.getElementById('svgContainer');
 
         this.points = [];
-        this.lines = [];
         this.drawnLines = [];
         this.pixelsPerMm = 4; // A scaling factor for SVG units
 
@@ -16,24 +15,57 @@ class FieldLines {
         this.isDrawing = false;
         this.currentDrawing = [];
 
+        // Layer system - simple approach like moiremaker
+        this.layers = [];
+        this.numLayers = 1; // Default number of layers
+        this.selectedLayerIndex = -1; // Currently selected layer for editing
+        this.regenerateTimeout = null; // For debouncing layer regeneration
+
         this.previewArea = document.querySelector('.preview-area');
         this.interactiveCanvas = new InteractiveCanvas(this.previewArea);
 
+        // Configuration management
+        this.configManager = new ConfigManager();
+        this.toolId = 'fieldlines';
+
         this.setupEventListeners();
         this.updateCanvasSize();
-        this.generateLines();
+        this.initializeLayers();
+        this.generateAllLayers();
         this.draw();
+        
+        // Check for URL config parameter
+        this.checkForUrlConfig();
     }
 
     setupEventListeners() {
         // Canvas size
-        document.getElementById('canvasWidthValue').addEventListener('input', () => { this.updateCanvasSize(); this.generateLines(); this.draw(); });
-        document.getElementById('canvasHeightValue').addEventListener('input', () => { this.updateCanvasSize(); this.generateLines(); this.draw(); });
+        document.getElementById('canvasWidthValue').addEventListener('input', () => { this.updateCanvasSize(); this.generateAllLayers(); this.updateLayerPanel(); this.draw(); });
+        document.getElementById('canvasHeightValue').addEventListener('input', () => { this.updateCanvasSize(); this.generateAllLayers(); this.updateLayerPanel(); this.draw(); });
         
-        // Line settings
-        document.getElementById('lineAngleValue').addEventListener('input', () => { this.generateLines(); this.draw(); });
-        document.getElementById('lineSpacingValue').addEventListener('input', () => { this.generateLines(); this.draw(); });
-        this.syncInputs('lineTension', 'lineTensionValue', () => { this.draw(); });
+        // Layer management
+        document.getElementById('addLayerBtn').addEventListener('click', () => this.addLayer());
+        document.getElementById('removeCurrentLayerBtn').addEventListener('click', () => this.removeCurrentLayer());
+        
+        // Set up pen diameter
+        document.getElementById('penDiameterValue').addEventListener('input', () => this.draw());
+
+        // Layer editor controls
+        document.getElementById('layerColorValue').addEventListener('input', () => this.updateSelectedLayerProperty('color', document.getElementById('layerColorValue').value));
+        document.getElementById('lineAngleValue').addEventListener('input', () => this.updateSelectedLayerProperty('angle', parseFloat(document.getElementById('lineAngleValue').value)));
+        document.getElementById('lineSpacingValue').addEventListener('input', () => this.updateSelectedLayerProperty('spacing', parseFloat(document.getElementById('lineSpacingValue').value)));
+        document.getElementById('layerOffsetXValue').addEventListener('input', () => this.updateSelectedLayerProperty('offsetX', parseFloat(document.getElementById('layerOffsetXValue').value)));
+        document.getElementById('layerOffsetYValue').addEventListener('input', () => this.updateSelectedLayerProperty('offsetY', parseFloat(document.getElementById('layerOffsetYValue').value)));
+        this.syncInputs('lineTension', 'lineTensionValue', () => this.updateSelectedLayerProperty('tension', parseFloat(document.getElementById('lineTensionValue').value)));
+
+        // Layer panel event delegation
+        document.getElementById('layerList').addEventListener('click', (e) => {
+            const layerItem = e.target.closest('.layer-item');
+            if (layerItem) {
+                const layerIndex = parseInt(layerItem.dataset.layerIndex);
+                this.selectLayer(layerIndex);
+            }
+        });
 
         // New point settings
         this.syncInputs('newPointForce', 'newPointForceValue');
@@ -47,14 +79,22 @@ class FieldLines {
             this.drawnLines = [];
             this.draw();
         });
+        document.getElementById('saveConfigBtn').addEventListener('click', () => this.saveConfiguration());
+        document.getElementById('loadConfigBtn').addEventListener('click', () => this.loadConfiguration());
         document.getElementById('fitToContentBtn').addEventListener('click', () => this.interactiveCanvas.fitToContent());
         document.getElementById('resetViewBtn').addEventListener('click', () => this.interactiveCanvas.resetTransform());
 
+        // Download buttons
+        document.getElementById('downloadSvgBtn').addEventListener('click', () => this.downloadCombinedSvg());
+        document.getElementById('downloadIndividualSvgBtn').addEventListener('click', () => this.downloadIndividualSvgs());
+        document.getElementById('downloadGcodeBtn').addEventListener('click', () => this.downloadCombinedGcode());
+        document.getElementById('downloadIndividualGcodeBtn').addEventListener('click', () => this.downloadIndividualGcodes());
+
         // SVG interaction
-        this.svg.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
+        this.fieldPointsSvg.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
         document.addEventListener('pointermove', (e) => this.handlePointerMove(e));
         document.addEventListener('pointerup', (e) => this.handlePointerUp(e));
-        this.svg.addEventListener('click', (e) => this.handleCanvasClick(e));
+        this.fieldPointsSvg.addEventListener('click', (e) => this.handleCanvasClick(e));
         this.fieldPointsGroup.addEventListener('click', (e) => this.handlePointClick(e));
 
         // Modal events
@@ -132,7 +172,7 @@ class FieldLines {
     getSVGPoint(e) {
         // Use the same coordinate space as line generation (this.width × this.height)
         // instead of relying on SVG's potentially non-square rendered dimensions
-        const svgRect = this.svg.getBoundingClientRect();
+        const svgRect = this.fieldPointsSvg.getBoundingClientRect();
         
         // Force square mapping - use the smaller dimension to ensure accuracy
         const size = Math.min(svgRect.width, svgRect.height);
@@ -182,36 +222,302 @@ class FieldLines {
     }
 
     updateCanvasSize() {
-        const widthMm = document.getElementById('canvasWidthValue').value;
-        const heightMm = document.getElementById('canvasHeightValue').value;
+        const widthMm = this.getCanvasWidth();
+        const heightMm = this.getCanvasHeight();
         const widthPx = Math.round(widthMm * this.pixelsPerMm);
         const heightPx = Math.round(heightMm * this.pixelsPerMm);
         
         this.width = widthPx;
         this.height = heightPx;
-
-        this.svg.setAttribute('viewBox', `0 0 ${widthPx} ${heightPx}`);
-        this.svg.setAttribute('width', `${widthMm}mm`);
-        this.svg.setAttribute('height', `${heightMm}mm`);
         
-        // Position SVG like hatchmaker for proper InteractiveCanvas behavior  
-        this.svg.style.position = 'absolute';
-        this.svg.style.top = '0';
-        this.svg.style.left = '50%';
-        this.svg.style.transform = 'translateX(-50%)';
-        this.svg.style.minWidth = '0';
-        this.svg.style.minHeight = '0';
-        this.svg.style.border = '2px solid #ecf0f1';
-        this.svg.style.borderRadius = '8px';
-        this.svg.style.background = 'white';
-        this.svg.style.transformOrigin = 'center center';
-        this.svg.style.transition = 'transform 0.3s ease';
+        // Update field points SVG
+        this.fieldPointsSvg.setAttribute('viewBox', `0 0 ${widthPx} ${heightPx}`);
+        
+        // Update all layer SVGs
+        this.layers.forEach(layer => {
+            if (layer.svg) {
+                layer.svg.setAttribute('viewBox', `0 0 ${widthPx} ${heightPx}`);
+            }
+        });
     }
 
-    generateLines() {
-        this.lines = [];
-        const spacing = document.getElementById('lineSpacingValue').value * this.pixelsPerMm;
-        const angle = document.getElementById('lineAngleValue').value * (Math.PI / 180);
+    // Removed - replaced by layer-based line generation
+
+    // Layer Management
+    initializeLayers() {
+        this.layers = [];
+        for (let i = 0; i < this.numLayers; i++) {
+            this.layers.push({
+                svg: null,
+                group: null,
+                svgContent: "",
+                lines: [],
+                color: this.getLayerColor(i),
+                offsetX: 0,
+                offsetY: 0,
+                angle: 0 + i * 15, // Vary angle for each layer
+                spacing: 10,
+                tension: 0.5,
+            });
+        }
+        this.updateSvgStack();
+        this.updateLayerPanel();
+
+        // Set up InteractiveCanvas with the SVG stack
+        const svgStack = document.getElementById("svgContainer");
+        if (this.interactiveCanvas && svgStack) {
+            this.interactiveCanvas.setContent(svgStack);
+        }
+    }
+
+    getLayerColor(index) {
+        const colors = [
+            "#000000", // Black for first layer
+            "#FF0000", // Red
+            "#0000FF", // Blue  
+            "#00FF00", // Green
+            "#FF8000", // Orange
+            "#8000FF", // Purple
+            "#00FFFF", // Cyan
+            "#FF00FF", // Magenta
+            "#808080", // Gray
+            "#FFD700", // Gold
+        ];
+        return colors[index % colors.length];
+    }
+
+    updateSvgStack() {
+        const svgStack = document.getElementById("svgContainer");
+        svgStack.innerHTML = "";
+
+        // Add the field points SVG first (background layer for interaction)
+        svgStack.appendChild(this.fieldPointsSvg);
+
+        for (let i = 0; i < this.layers.length; i++) {
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.id = `outputSvgLayer${i}`;
+            svg.classList.add("layer-svg");
+            svg.setAttribute(
+                "viewBox",
+                `0 0 ${this.width} ${this.height}`
+            );
+            svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+            svg.style.position = "absolute";
+            svg.style.top = "0";
+            svg.style.left = "0";
+            svg.style.pointerEvents = "none";
+
+            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            group.id = `pen-plotter-lines-Layer${i}`;
+            group.setAttribute("stroke", this.layers[i].color);
+            group.setAttribute("fill", "none");
+            group.setAttribute("stroke-linecap", "round");
+            group.setAttribute("stroke-linejoin", "round");
+
+            if (i > 0) {
+                group.setAttribute("opacity", "0.8");
+            }
+
+            svg.appendChild(group);
+            svgStack.appendChild(svg);
+
+            this.layers[i].svg = svg;
+            this.layers[i].group = group;
+        }
+    }
+
+    updateLayerPanel() {
+        const layerList = document.getElementById("layerList");
+        layerList.innerHTML = "";
+
+        this.layers.forEach((layer, index) => {
+            const layerItem = document.createElement("div");
+            layerItem.className = `layer-item ${index === this.selectedLayerIndex ? 'selected' : ''}`;
+            layerItem.dataset.layerIndex = index;
+            
+            layerItem.innerHTML = `
+                <div class="layer-color-indicator" style="background-color: ${layer.color}"></div>
+                <div class="layer-info">
+                    <span class="layer-name">Layer ${index + 1}</span>
+                    <span class="layer-params">${layer.angle}° • ${layer.spacing}mm • (${layer.offsetX}, ${layer.offsetY})</span>
+                </div>
+            `;
+            
+            layerList.appendChild(layerItem);
+        });
+    }
+
+    updateLayerPanelDisplay() {
+        // Update only the parameter display for existing layer items
+        const layerItems = document.querySelectorAll('.layer-item');
+        layerItems.forEach((item, index) => {
+            if (index < this.layers.length) {
+                const layer = this.layers[index];
+                const colorIndicator = item.querySelector('.layer-color-indicator');
+                const paramsSpan = item.querySelector('.layer-params');
+                
+                if (colorIndicator) {
+                    colorIndicator.style.backgroundColor = layer.color;
+                }
+                if (paramsSpan) {
+                    paramsSpan.textContent = `${layer.angle}° • ${layer.spacing}mm • (${layer.offsetX}, ${layer.offsetY})`;
+                }
+                
+                // Update selection state
+                item.className = `layer-item ${index === this.selectedLayerIndex ? 'selected' : ''}`;
+            }
+        });
+    }
+
+    selectLayer(index) {
+        this.selectedLayerIndex = index;
+        this.updateLayerPanelDisplay();
+        this.showLayerEditor(index);
+    }
+
+    showLayerEditor(index) {
+        const layer = this.layers[index];
+        const layerEditor = document.getElementById("layerEditor");
+        
+        // Show the editor
+        layerEditor.style.display = "block";
+        
+        // Update header
+        document.getElementById("currentLayerColor").style.backgroundColor = layer.color;
+        document.getElementById("currentLayerName").textContent = `Layer ${index + 1}`;
+        
+        // Update form values
+        document.getElementById("layerColorValue").value = layer.color;
+        document.getElementById("lineAngleValue").value = layer.angle;
+        document.getElementById("lineSpacingValue").value = layer.spacing;
+        document.getElementById("layerOffsetXValue").value = layer.offsetX;
+        document.getElementById("layerOffsetYValue").value = layer.offsetY;
+        document.getElementById("lineTensionValue").value = layer.tension;
+        document.getElementById("lineTension").value = layer.tension;
+    }
+
+    updateSelectedLayerProperty(property, value) {
+        if (this.selectedLayerIndex === -1) return;
+        
+        this.layers[this.selectedLayerIndex][property] = value;
+        
+        // Update SVG stroke color if color changed
+        if (property === 'color' && this.layers[this.selectedLayerIndex].group) {
+            this.layers[this.selectedLayerIndex].group.setAttribute('stroke', value);
+            document.getElementById("currentLayerColor").style.backgroundColor = value;
+        }
+        
+        // Only regenerate geometry if necessary and debounce it
+        if (['angle', 'spacing'].includes(property)) {
+            clearTimeout(this.regenerateTimeout);
+            this.regenerateTimeout = setTimeout(() => {
+                this.generateLayerLines(this.selectedLayerIndex);
+                this.draw();
+            }, 100); // 100ms debounce
+        } else {
+            this.draw();
+        }
+        
+        // Update layer panel (only the parameter display, not rebuild)
+        this.updateLayerPanelDisplay();
+    }
+
+    addLayer() {
+        this.numLayers++;
+        
+        // Add new layer data to layers array
+        const newLayerIndex = this.numLayers - 1;
+        this.layers.push({
+            svg: null,
+            group: null,
+            svgContent: "",
+            lines: [],
+            color: this.getLayerColor(newLayerIndex),
+            offsetX: 0,
+            offsetY: 0,
+            angle: 0 + newLayerIndex * 15,
+            spacing: 10,
+            tension: 0.5,
+        });
+
+        this.updateSvgStack();
+        this.updateLayerPanel();
+        
+        // Set up InteractiveCanvas with the SVG stack
+        const svgStack = document.getElementById("svgContainer");
+        if (this.interactiveCanvas && svgStack) {
+            this.interactiveCanvas.setContent(svgStack);
+        }
+
+        // Generate the new layer
+        this.generateLayerLines(newLayerIndex);
+        this.draw();
+    }
+
+    removeCurrentLayer() {
+        if (this.selectedLayerIndex === -1 || this.layers.length <= 1) {
+            return; // Don't allow deleting if no layer selected or only one layer
+        }
+
+        // Remove the selected layer
+        this.layers.splice(this.selectedLayerIndex, 1);
+        this.numLayers = this.layers.length;
+        
+        // Adjust selection - select previous layer or hide editor if removing first layer
+        if (this.selectedLayerIndex >= this.layers.length) {
+            this.selectedLayerIndex = this.layers.length - 1;
+        }
+        
+        // If no layers left, hide editor
+        if (this.layers.length === 0) {
+            this.selectedLayerIndex = -1;
+            document.getElementById("layerEditor").style.display = "none";
+        }
+
+        this.updateSvgStack();
+        this.updateLayerPanel();
+
+        // Set up InteractiveCanvas with the SVG stack
+        const svgStack = document.getElementById("svgContainer");
+        if (this.interactiveCanvas && svgStack) {
+            this.interactiveCanvas.setContent(svgStack);
+        }
+
+        // If there are still layers and we have a selection, show the editor
+        if (this.selectedLayerIndex !== -1) {
+            this.showLayerEditor(this.selectedLayerIndex);
+        }
+
+        // Regenerate all remaining layers
+        this.generateAllLayers();
+        this.draw();
+    }
+
+
+
+
+
+
+    generateAllLayers() {
+        this.layers.forEach((_, index) => {
+            this.generateLayerLines(index);
+        });
+    }
+
+    getCanvasWidth() {
+        return parseFloat(document.getElementById("canvasWidthValue").value) || 200;
+    }
+
+    getCanvasHeight() {
+        return parseFloat(document.getElementById("canvasHeightValue").value) || 200;
+    }
+
+    generateLayerLines(layerIndex) {
+        const layer = this.layers[layerIndex];
+        layer.lines = [];
+        
+        const spacing = layer.spacing * this.pixelsPerMm;
+        const angle = layer.angle * (Math.PI / 180);
         
         const diagonal = Math.sqrt(this.width * this.width + this.height * this.height);
         const numLines = Math.ceil(diagonal / spacing);
@@ -222,25 +528,27 @@ class FieldLines {
         for (let i = 0; i < numLines; i++) {
             const line = [];
             const offset = (i - numLines / 2) * spacing;
-            const lineLength = diagonal * 1.2; // Make lines longer to ensure they cover the canvas when rotated
+            const lineLength = diagonal * 1.2;
 
             const startX = this.width / 2 + offset * ca - (lineLength / 2) * sa;
             const startY = this.height / 2 + offset * sa + (lineLength / 2) * ca;
             const endX = this.width / 2 + offset * ca + (lineLength / 2) * sa;
             const endY = this.height / 2 + offset * sa - (lineLength / 2) * ca;
 
-            // Generate line with adaptive resolution based on proximity to force fields
             this.generateAdaptiveLineSegments(line, startX, startY, endX, endY);
-            this.lines.push(line);
+            layer.lines.push(line);
         }
     }
 
     generateAdaptiveLineSegments(line, startX, startY, endX, endY) {
         const lineLength = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2);
-        const baseStep = lineLength / 50; // Base step size
+        const baseStep = lineLength / 20; // Reduced from 50 to 20 - fewer initial points
+        const maxPoints = 500; // Much reduced limit since subdivision will handle details
         
         let currentDistance = 0;
-        while (currentDistance <= lineLength) {
+        let pointCount = 0;
+        
+        while (currentDistance <= lineLength && pointCount < maxPoints) {
             const t = currentDistance / lineLength;
             const x = startX + (endX - startX) * t;
             const y = startY + (endY - startY) * t;
@@ -263,12 +571,10 @@ class FieldLines {
                 }
             });
             
-            // Calculate adaptive step size based on distance to nearest force field
+            // Much simpler step size calculation - only 2x increase near fields
             let stepSize = baseStep;
-            if (minDistToField < 100) {
-                // Much smaller steps near force fields
-                const proximityFactor = Math.max(0.01, minDistToField / 100);
-                stepSize = baseStep * proximityFactor * 0.01; // Up to 100x more resolution
+            if (minDistToField < 50) {
+                stepSize = baseStep * 0.5; // 2x more resolution near force fields
             }
             
             line.push({
@@ -279,6 +585,7 @@ class FieldLines {
             });
             
             currentDistance += stepSize;
+            pointCount++;
         }
         
         // Ensure we always include the end point
@@ -354,11 +661,15 @@ class FieldLines {
     }
 
     draw() {
-        this.gridLinesGroup.innerHTML = '';
         this.fieldPointsGroup.innerHTML = '';
         this.drawnLinesGroup.innerHTML = '';
 
-        const tension = document.getElementById('lineTensionValue').value;
+        // Clear all layer groups
+        this.layers.forEach(layer => {
+            if (layer.group) {
+                layer.group.innerHTML = '';
+            }
+        });
 
         // Draw the line currently being drawn
         if (this.isDrawing && this.currentDrawing.length > 1) {
@@ -388,76 +699,92 @@ class FieldLines {
             this.drawnLinesGroup.appendChild(path);
         });
 
-        // Draw lines
-        this.lines.forEach(line => {
-            // First pass: calculate deformation for each point
-            const deformedLine = line.map(p => {
-                let dx = 0, dy = 0;
+        // Draw all layers
+        this.layers.forEach(layer => {
+            if (!layer.group) return;
+            
+            layer.lines.forEach(line => {
+                // First pass: calculate deformation for each point
+                const deformedLine = line.map(p => {
+                    // Apply offset to the position first
+                    const offsetX = p.originalX + (layer.offsetX * this.pixelsPerMm);
+                    const offsetY = p.originalY + (layer.offsetY * this.pixelsPerMm);
+                    
+                    let dx = 0, dy = 0;
 
-                this.points.forEach(fieldPoint => {
-                    const dist = Math.sqrt(Math.pow(p.originalX - fieldPoint.x, 2) + Math.pow(p.originalY - fieldPoint.y, 2));
-                    if (dist < fieldPoint.radius) {
-                        const falloff = fieldPoint.falloff || 1;
-                        const normalizedDist = dist / fieldPoint.radius;
-                        let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
-                        const angle = Math.atan2(p.originalY - fieldPoint.y, p.originalX - fieldPoint.x);
-                        const direction = fieldPoint.mode === 'attract' ? -1 : 1;
+                    this.points.forEach(fieldPoint => {
+                        const dist = Math.sqrt(Math.pow(offsetX - fieldPoint.x, 2) + Math.pow(offsetY - fieldPoint.y, 2));
+                        if (dist < fieldPoint.radius) {
+                            const falloff = fieldPoint.falloff || 1;
+                            const normalizedDist = dist / fieldPoint.radius;
+                            let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
+                            const angle = Math.atan2(offsetY - fieldPoint.y, offsetX - fieldPoint.x);
+                            const direction = fieldPoint.mode === 'attract' ? -1 : 1;
 
-                        if (fieldPoint.mode === 'attract' && !fieldPoint.allowCrossing) {
-                            force = Math.min(force, dist);
-                        }
-
-                        dx += Math.cos(angle) * force * direction;
-                        dy += Math.sin(angle) * force * direction;
-                    }
-                });
-
-                this.drawnLines.forEach(drawnLine => {
-                    for (let i = 0; i < drawnLine.points.length; i++) {
-                        const p2 = drawnLine.points[i];
-                        const dist = Math.sqrt(Math.pow(p.originalX - p2.x, 2) + Math.pow(p.originalY - p2.y, 2));
-                        if (dist < drawnLine.radius) {
-                            const falloff = drawnLine.falloff || 1;
-                            const normalizedDist = dist / drawnLine.radius;
-                            let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
-                            const angle = Math.atan2(p.originalY - p2.y, p.originalX - p2.x);
-                            const direction = drawnLine.mode === 'attract' ? -1 : 1;
-
-                            if (drawnLine.mode === 'attract' && !drawnLine.allowCrossing) {
-                                force = Math.min(force, dist);
+                            if (!fieldPoint.allowCrossing) {
+                                // Apply crossing prevention based on layer tension
+                                // High tension = strict crossing prevention, Low tension = allow more crossing
+                                const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
+                                force = Math.min(force, dist / crossingStrength);
                             }
 
                             dx += Math.cos(angle) * force * direction;
                             dy += Math.sin(angle) * force * direction;
                         }
-                    }
+                    });
+
+                    this.drawnLines.forEach(drawnLine => {
+                        for (let i = 0; i < drawnLine.points.length; i++) {
+                            const p2 = drawnLine.points[i];
+                            const dist = Math.sqrt(Math.pow(offsetX - p2.x, 2) + Math.pow(offsetY - p2.y, 2));
+                            if (dist < drawnLine.radius) {
+                                const falloff = drawnLine.falloff || 1;
+                                const normalizedDist = dist / drawnLine.radius;
+                                let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
+                                const angle = Math.atan2(offsetY - p2.y, offsetX - p2.x);
+                                const direction = drawnLine.mode === 'attract' ? -1 : 1;
+
+                                if (!drawnLine.allowCrossing) {
+                                    // Apply crossing prevention based on layer tension
+                                    // High tension = strict crossing prevention, Low tension = allow more crossing
+                                    const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
+                                    force = Math.min(force, dist / crossingStrength);
+                                }
+
+                                dx += Math.cos(angle) * force * direction;
+                                dy += Math.sin(angle) * force * direction;
+                            }
+                        }
+                    });
+
+                    const deformation = Math.sqrt(dx * dx + dy * dy);
+                    return { 
+                        x: offsetX + dx, 
+                        y: offsetY + dy, 
+                        originalX: p.originalX,
+                        originalY: p.originalY,
+                        deformation: deformation 
+                    };
                 });
 
-                const deformation = Math.sqrt(dx * dx + dy * dy);
-                return { 
-                    x: p.originalX + dx, 
-                    y: p.originalY + dy, 
-                    originalX: p.originalX,
-                    originalY: p.originalY,
-                    deformation: deformation 
-                };
+                // Second pass: adaptively subdivide based on deformation
+                const adaptiveLine = this.adaptiveSubdivision(deformedLine, layer);
+
+                // Apply tension
+                const smoothedLine = this.smoothLine(adaptiveLine, layer.tension);
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                let d = `M ${smoothedLine[0].x} ${smoothedLine[0].y}`;
+                for (let i = 1; i < smoothedLine.length; i++) {
+                    d += ` L ${smoothedLine[i].x} ${smoothedLine[i].y}`;
+                }
+                path.setAttribute('d', d);
+                path.setAttribute('stroke', layer.color);
+                path.setAttribute('fill', 'none');
+                const penDiameter = document.getElementById('penDiameterValue').value;
+                path.setAttribute('stroke-width', penDiameter);
+                layer.group.appendChild(path);
             });
-
-            // Second pass: adaptively subdivide based on deformation
-            const adaptiveLine = this.adaptiveSubdivision(deformedLine);
-
-            // Apply tension
-            const smoothedLine = this.smoothLine(adaptiveLine, tension);
-
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            let d = `M ${smoothedLine[0].x} ${smoothedLine[0].y}`;
-            for (let i = 1; i < smoothedLine.length; i++) {
-                d += ` L ${smoothedLine[i].x} ${smoothedLine[i].y}`;
-            }
-            path.setAttribute('d', d);
-            path.setAttribute('stroke', 'black');
-            path.setAttribute('fill', 'none');
-            this.gridLinesGroup.appendChild(path);
         });
 
         // Draw points
@@ -527,27 +854,10 @@ class FieldLines {
         }
     }
 
-    adaptiveSubdivision(line) {
+    adaptiveSubdivision(line, layer) {
         const result = [];
-        
-        // Calculate minimum radius to adjust thresholds for small force fields
-        let minRadius = Infinity;
-        this.points.forEach(point => {
-            if (point.radius < minRadius) minRadius = point.radius;
-        });
-        this.drawnLines.forEach(drawnLine => {
-            if (drawnLine.radius < minRadius) minRadius = drawnLine.radius;
-        });
-        
-        // Adjust thresholds based on smallest force field
-        let deformationThreshold = 10; // Default threshold
-        let maxSubdivisions = 3; // Default max subdivisions
-        
-        if (minRadius < 100) {
-            // For small radii, be more aggressive with subdivision
-            deformationThreshold = Math.max(2, minRadius / 10); // Much lower threshold
-            maxSubdivisions = Math.min(6, Math.ceil(100 / minRadius)); // More subdivisions for smaller radii
-        }
+        const maxDistance = 5; // Maximum allowed distance between consecutive points (in pixels)
+        const maxTotalPoints = 1000; // Reduced hard limit on total points
         
         for (let i = 0; i < line.length - 1; i++) {
             const current = line[i];
@@ -555,68 +865,87 @@ class FieldLines {
             
             result.push(current);
             
-            // Calculate average deformation between current and next point
-            const avgDeformation = (current.deformation + next.deformation) / 2;
-            
-            // Determine subdivision level based on deformation
-            let subdivisions = 0;
-            if (avgDeformation > deformationThreshold) {
-                subdivisions = Math.min(maxSubdivisions, Math.floor(avgDeformation / deformationThreshold));
+            // Safety check: stop if we're approaching the point limit
+            if (result.length >= maxTotalPoints) {
+                console.warn('Hit maximum point limit in adaptive subdivision');
+                break;
             }
             
-            // Add subdivided points
-            for (let sub = 1; sub <= subdivisions; sub++) {
-                const t = sub / (subdivisions + 1);
-                const interpX = current.originalX + (next.originalX - current.originalX) * t;
-                const interpY = current.originalY + (next.originalY - current.originalY) * t;
+            // Calculate distance between current and next point after deformation
+            const dx = next.x - current.x;
+            const dy = next.y - current.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Only subdivide if points are too far apart
+            if (distance > maxDistance) {
+                const subdivisions = Math.min(3, Math.ceil(distance / maxDistance) - 1);
+                const remainingCapacity = maxTotalPoints - result.length;
+                const actualSubdivisions = Math.min(subdivisions, remainingCapacity);
                 
-                // Calculate deformation for interpolated point
-                let dx = 0, dy = 0;
-                this.points.forEach(fieldPoint => {
-                    const dist = Math.sqrt(Math.pow(interpX - fieldPoint.x, 2) + Math.pow(interpY - fieldPoint.y, 2));
-                    if (dist < fieldPoint.radius) {
-                        const falloff = fieldPoint.falloff || 1;
-                        const normalizedDist = dist / fieldPoint.radius;
-                        let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
-                        const angle = Math.atan2(interpY - fieldPoint.y, interpX - fieldPoint.x);
-                        const direction = fieldPoint.mode === 'attract' ? -1 : 1;
-                        
-                        if (fieldPoint.mode === 'attract' && !fieldPoint.allowCrossing) {
-                            force = Math.min(force, dist);
-                        }
-                        
-                        dx += Math.cos(angle) * force * direction;
-                        dy += Math.sin(angle) * force * direction;
-                    }
-                });
-                
-                this.drawnLines.forEach(drawnLine => {
-                    for (let j = 0; j < drawnLine.points.length; j++) {
-                        const p2 = drawnLine.points[j];
-                        const dist = Math.sqrt(Math.pow(interpX - p2.x, 2) + Math.pow(interpY - p2.y, 2));
-                        if (dist < drawnLine.radius) {
-                            const falloff = drawnLine.falloff || 1;
-                            const normalizedDist = dist / drawnLine.radius;
-                            let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
-                            const angle = Math.atan2(interpY - p2.y, interpX - p2.x);
-                            const direction = drawnLine.mode === 'attract' ? -1 : 1;
+                // Add subdivided points
+                for (let sub = 1; sub <= actualSubdivisions; sub++) {
+                    const t = sub / (actualSubdivisions + 1);
+                    const interpOriginalX = current.originalX + (next.originalX - current.originalX) * t;
+                    const interpOriginalY = current.originalY + (next.originalY - current.originalY) * t;
+                    
+                    // Apply layer offset to interpolated position
+                    const interpX = interpOriginalX + (layer.offsetX * this.pixelsPerMm);
+                    const interpY = interpOriginalY + (layer.offsetY * this.pixelsPerMm);
+                    
+                    // Calculate deformation for interpolated point
+                    let dx = 0, dy = 0;
+                    this.points.forEach(fieldPoint => {
+                        const dist = Math.sqrt(Math.pow(interpX - fieldPoint.x, 2) + Math.pow(interpY - fieldPoint.y, 2));
+                        if (dist < fieldPoint.radius) {
+                            const falloff = fieldPoint.falloff || 1;
+                            const normalizedDist = dist / fieldPoint.radius;
+                            let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
+                            const angle = Math.atan2(interpY - fieldPoint.y, interpX - fieldPoint.x);
+                            const direction = fieldPoint.mode === 'attract' ? -1 : 1;
                             
-                            if (drawnLine.mode === 'attract' && !drawnLine.allowCrossing) {
-                                force = Math.min(force, dist);
+                            if (!fieldPoint.allowCrossing) {
+                                // Apply crossing prevention based on layer tension
+                                // High tension = strict crossing prevention, Low tension = allow more crossing
+                                const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
+                                force = Math.min(force, dist / crossingStrength);
                             }
                             
                             dx += Math.cos(angle) * force * direction;
                             dy += Math.sin(angle) * force * direction;
                         }
-                    }
-                });
-                
-                result.push({
-                    x: interpX + dx,
-                    y: interpY + dy,
-                    originalX: interpX,
-                    originalY: interpY
-                });
+                    });
+                    
+                    this.drawnLines.forEach(drawnLine => {
+                        for (let j = 0; j < drawnLine.points.length; j++) {
+                            const p2 = drawnLine.points[j];
+                            const dist = Math.sqrt(Math.pow(interpX - p2.x, 2) + Math.pow(interpY - p2.y, 2));
+                            if (dist < drawnLine.radius) {
+                                const falloff = drawnLine.falloff || 1;
+                                const normalizedDist = dist / drawnLine.radius;
+                                let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
+                                const angle = Math.atan2(interpY - p2.y, interpX - p2.x);
+                                const direction = drawnLine.mode === 'attract' ? -1 : 1;
+                                
+                                if (!drawnLine.allowCrossing) {
+                                    // Apply crossing prevention based on layer tension
+                                    // High tension = strict crossing prevention, Low tension = allow more crossing
+                                    const crossingStrength = Math.max(0.1, layer.tension); // Never completely disable, but reduce significantly
+                                    force = Math.min(force, dist / crossingStrength);
+                                }
+                                
+                                dx += Math.cos(angle) * force * direction;
+                                dy += Math.sin(angle) * force * direction;
+                            }
+                        }
+                    });
+                    
+                    result.push({
+                        x: interpX + dx,
+                        y: interpY + dy,
+                        originalX: interpOriginalX,
+                        originalY: interpOriginalY
+                    });
+                }
             }
         }
         
@@ -629,24 +958,446 @@ class FieldLines {
     }
 
     smoothLine(line, tension) {
-        if (tension == 1) return line;
-        const smoothed = [];
-        const windowSize = Math.floor(line.length * (1 - tension) * 0.1);
-        if (windowSize < 1) return line;
-
-        for (let i = 0; i < line.length; i++) {
-            let avgX = 0, avgY = 0;
-            let count = 0;
-            for (let j = -windowSize; j <= windowSize; j++) {
-                if (i + j >= 0 && i + j < line.length) {
-                    avgX += line[i+j].x;
-                    avgY += line[i+j].y;
-                    count++;
+        if (line.length < 3) return line;
+        
+        // REVERSED TENSION LOGIC:
+        // tension: 1 = straight lines (ignore field forces), 0 = maximum field influence
+        
+        if (tension >= 0.99) {
+            // High tension = return to straight line between start and end points
+            const result = [];
+            const startPoint = line[0];
+            const endPoint = line[line.length - 1];
+            
+            for (let i = 0; i < line.length; i++) {
+                const t = i / (line.length - 1);
+                result.push({
+                    x: startPoint.originalX + (endPoint.originalX - startPoint.originalX) * t,
+                    y: startPoint.originalY + (endPoint.originalY - startPoint.originalY) * t
+                });
+            }
+            return result;
+        }
+        
+        // Low tension = allow maximum field influence + smoothing
+        const fieldInfluenceStrength = 1 - tension; // 0 to 1
+        const smoothed = [...line];
+        
+        // Apply field influence blending - lower tension allows more deformation
+        const influencedLine = smoothed.map(point => {
+            // Blend between original straight position and field-deformed position
+            const straightX = point.originalX;
+            const straightY = point.originalY;
+            const deformedX = point.x;
+            const deformedY = point.y;
+            
+            return {
+                x: straightX + (deformedX - straightX) * fieldInfluenceStrength,
+                y: straightY + (deformedY - straightY) * fieldInfluenceStrength,
+                originalX: point.originalX,
+                originalY: point.originalY
+            };
+        });
+        
+        // Additional smoothing passes for low tension (more organic curves)
+        const smoothingPasses = Math.ceil(fieldInfluenceStrength * 12); // 0-12 passes
+        const maxWindowSize = Math.ceil(fieldInfluenceStrength * Math.min(30, line.length * 0.4));
+        
+        let result = [...influencedLine];
+        
+        for (let pass = 0; pass < smoothingPasses; pass++) {
+            // Larger windows for more dramatic smoothing
+            const windowSize = Math.max(1, Math.floor(maxWindowSize * (1 - pass / (smoothingPasses + 1))));
+            
+            const passResult = [];
+            for (let i = 0; i < result.length; i++) {
+                let avgX = 0, avgY = 0;
+                let totalWeight = 0;
+                
+                // Enhanced Gaussian weighting for more dramatic smoothing
+                for (let j = -windowSize; j <= windowSize; j++) {
+                    const idx = i + j;
+                    if (idx >= 0 && idx < result.length) {
+                        const weight = Math.exp(-Math.pow(j / (windowSize * 0.3), 2)); // Stronger Gaussian falloff
+                        avgX += result[idx].x * weight;
+                        avgY += result[idx].y * weight;
+                        totalWeight += weight;
+                    }
+                }
+                
+                if (totalWeight > 0) {
+                    passResult.push({ 
+                        x: avgX / totalWeight, 
+                        y: avgY / totalWeight,
+                        originalX: result[i].originalX,
+                        originalY: result[i].originalY
+                    });
+                } else {
+                    passResult.push({ ...result[i] });
                 }
             }
-            smoothed.push({ x: avgX / count, y: avgY / count });
+            
+            result = passResult;
         }
-        return smoothed;
+        
+        return result;
+    }
+
+    // Configuration Management
+    saveConfiguration() {
+        const configName = prompt("Enter a name for this configuration:");
+        if (!configName || configName.trim() === "") {
+            return;
+        }
+
+        // Get all current parameter values
+        const parameters = this.getAllParameters();
+
+        try {
+            this.configManager.saveConfig(
+                this.toolId,
+                configName.trim(),
+                parameters,
+                null // No image data for fieldlines
+            );
+            alert(`Configuration "${configName}" saved successfully!`);
+        } catch (error) {
+            console.error("Error saving configuration:", error);
+            alert("Failed to save configuration. Please try again.");
+        }
+    }
+
+    loadConfiguration() {
+        this.configManager.showConfigModal(this.toolId, (config) => {
+            this.applyConfiguration(config);
+        });
+    }
+
+    checkForUrlConfig() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const configId = urlParams.get('loadConfig');
+        
+        if (configId) {
+            const config = this.configManager.getConfig(this.toolId, configId);
+            if (config) {
+                this.applyConfiguration(config);
+                // Clear the URL parameter
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.delete('loadConfig');
+                window.history.replaceState({}, document.title, newUrl.toString());
+            } else {
+                console.warn(`Configuration with ID ${configId} not found for tool ${this.toolId}`);
+            }
+        }
+    }
+
+    getAllParameters() {
+        return {
+            // Canvas settings
+            canvasWidth: document.getElementById('canvasWidthValue').value,
+            canvasHeight: document.getElementById('canvasHeightValue').value,
+            
+            // Pen settings
+            penDiameter: document.getElementById('penDiameterValue').value,
+            
+            // New point defaults
+            newPointForce: document.getElementById('newPointForceValue').value,
+            newPointRadius: document.getElementById('newPointRadiusValue').value,
+            newPointFalloff: document.getElementById('newPointFalloffValue').value,
+            newPointMode: document.querySelector('input[name="newPointMode"]:checked').value,
+            newPointAllowCrossing: document.getElementById('newPointAllowCrossing').checked,
+            
+            // Visualization
+            showVisualization: document.getElementById('showVisualization').checked,
+            
+            // Layer data
+            layers: this.layers.map(layer => ({
+                id: layer.id,
+                name: layer.name,
+                color: layer.color,
+                angle: layer.angle,
+                spacing: layer.spacing,
+                tension: layer.tension,
+                offsetX: layer.offsetX,
+                offsetY: layer.offsetY
+            })),
+            activeLayerIndex: this.activeLayerIndex,
+            
+            // Points and drawn lines data
+            points: this.points,
+            drawnLines: this.drawnLines
+        };
+    }
+
+    applyConfiguration(config) {
+        const params = config.parameters;
+
+        // Apply canvas settings
+        document.getElementById('canvasWidthValue').value = params.canvasWidth || "200";
+        document.getElementById('canvasHeightValue').value = params.canvasHeight || "200";
+        
+        // Apply pen settings
+        document.getElementById('penDiameterValue').value = params.penDiameter || "0.5";
+        
+        // Apply new point defaults
+        document.getElementById('newPointForceValue').value = params.newPointForce || "50";
+        document.getElementById('newPointForce').value = params.newPointForce || "50";
+        document.getElementById('newPointRadiusValue').value = params.newPointRadius || "100";
+        document.getElementById('newPointRadius').value = params.newPointRadius || "100";
+        document.getElementById('newPointFalloffValue').value = params.newPointFalloff || "1";
+        document.getElementById('newPointFalloff').value = params.newPointFalloff || "1";
+        
+        if (params.newPointMode) {
+            document.querySelector(`input[name="newPointMode"][value="${params.newPointMode}"]`).checked = true;
+        }
+        document.getElementById('newPointAllowCrossing').checked = params.newPointAllowCrossing || false;
+        
+        // Apply visualization setting
+        document.getElementById('showVisualization').checked = params.showVisualization !== undefined ? params.showVisualization : true;
+        
+        // Clear existing layers and their SVGs
+        this.layers.forEach(layer => {
+            if (layer.svg) layer.svg.remove();
+        });
+        
+        // Apply layers
+        if (params.layers && params.layers.length > 0) {
+            this.layers = params.layers.map(layerData => ({
+                ...layerData,
+                lines: [],
+                svg: null,
+                group: null
+            }));
+            this.activeLayerIndex = params.activeLayerIndex || 0;
+        } else {
+            // Fallback to default layer
+            this.layers = [{
+                id: 0,
+                name: 'Layer 1',
+                color: '#000000',
+                angle: 0,
+                spacing: 10,
+                tension: 0.5,
+                offsetX: 0,
+                offsetY: 0,
+                lines: [],
+                svg: null,
+                group: null
+            }];
+            this.activeLayerIndex = 0;
+        }
+        
+        this.numLayers = this.layers.length;
+        
+        // Recreate layer SVGs and update UI
+        this.updateSvgStack();
+        this.updateLayerPanel();
+        
+        // Set up InteractiveCanvas with the SVG stack
+        const svgStack = document.getElementById("svgContainer");
+        if (this.interactiveCanvas && svgStack) {
+            this.interactiveCanvas.setContent(svgStack);
+        }
+        
+        // Apply points and drawn lines
+        this.points = params.points || [];
+        this.drawnLines = params.drawnLines || [];
+        
+        // Update canvas and regenerate
+        this.updateCanvasSize();
+        this.generateAllLayers();
+        this.draw();
+        
+        alert(`Configuration "${config.name}" loaded successfully!`);
+    }
+
+    // Download Methods
+    downloadCombinedSvg() {
+        const svgContent = this.generateCombinedSvg();
+        this.downloadFile(svgContent, 'fieldlines_combined.svg', 'image/svg+xml');
+    }
+
+    downloadIndividualSvgs() {
+        this.layers.forEach((layer, index) => {
+            const svgContent = this.generateLayerSvg(layer, index);
+            this.downloadFile(svgContent, `fieldlines_layer_${index + 1}.svg`, 'image/svg+xml');
+        });
+    }
+
+    downloadCombinedGcode() {
+        const gcodeContent = this.generateCombinedGcode();
+        this.downloadFile(gcodeContent, 'fieldlines_combined.gcode', 'text/plain');
+    }
+
+    downloadIndividualGcodes() {
+        this.layers.forEach((layer, index) => {
+            const gcodeContent = this.generateLayerGcode(layer, index);
+            this.downloadFile(gcodeContent, `fieldlines_layer_${index + 1}.gcode`, 'text/plain');
+        });
+    }
+
+    generateCombinedSvg() {
+        const widthMm = this.getCanvasWidth();
+        const heightMm = this.getCanvasHeight();
+        
+        let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${widthMm}mm" height="${heightMm}mm" viewBox="0 0 ${this.width} ${this.height}">
+`;
+        
+        // Add each layer's paths
+        this.layers.forEach((layer, index) => {
+            if (layer.group) {
+                const paths = layer.group.querySelectorAll('path');
+                if (paths.length > 0) {
+                    svg += `  <g id="layer-${index + 1}" stroke="${layer.color}" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="${document.getElementById('penDiameterValue').value}">\n`;
+                    paths.forEach(path => {
+                        svg += `    <path d="${path.getAttribute('d')}" />\n`;
+                    });
+                    svg += `  </g>\n`;
+                }
+            }
+        });
+        
+        svg += `</svg>`;
+        return svg;
+    }
+
+    generateLayerSvg(layer, index) {
+        const widthMm = this.getCanvasWidth();
+        const heightMm = this.getCanvasHeight();
+        
+        let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${widthMm}mm" height="${heightMm}mm" viewBox="0 0 ${this.width} ${this.height}">
+  <g id="layer-${index + 1}" stroke="${layer.color}" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="${document.getElementById('penDiameterValue').value}">
+`;
+        
+        if (layer.group) {
+            const paths = layer.group.querySelectorAll('path');
+            paths.forEach(path => {
+                svg += `    <path d="${path.getAttribute('d')}" />\n`;
+            });
+        }
+        
+        svg += `  </g>
+</svg>`;
+        return svg;
+    }
+
+    generateCombinedGcode() {
+        let gcode = this.getGcodeHeader();
+        
+        this.layers.forEach((layer) => {
+            if (layer.group) {
+                const paths = layer.group.querySelectorAll('path');
+                paths.forEach(path => {
+                    gcode += this.convertPathToGcode(path.getAttribute('d'));
+                });
+            }
+        });
+        
+        gcode += this.getGcodeFooter();
+        return gcode;
+    }
+
+    generateLayerGcode(layer, index) {
+        let gcode = this.getGcodeHeader();
+        gcode += `; Layer ${index + 1}\n`;
+        
+        if (layer.group) {
+            const paths = layer.group.querySelectorAll('path');
+            paths.forEach(path => {
+                gcode += this.convertPathToGcode(path.getAttribute('d'));
+            });
+        }
+        
+        gcode += this.getGcodeFooter();
+        return gcode;
+    }
+
+    getGcodeHeader() {
+        const feedRate = document.getElementById('feedRateValue').value;
+        return `; Generated by FieldLines - LineMaker
+; Canvas size: ${this.getCanvasWidth()}mm x ${this.getCanvasHeight()}mm
+G90 ; Absolute positioning
+G21 ; Millimeter units
+G28 ; Home
+F${feedRate} ; Set feed rate
+`;
+    }
+
+    getGcodeFooter() {
+        const penUpZ = document.getElementById('penUpZValue').value;
+        return `G0 Z${penUpZ} ; Pen up
+G28 ; Home
+M30 ; Program end
+`;
+    }
+
+    convertPathToGcode(pathData) {
+        const feedRate = document.getElementById('feedRateValue').value;
+        const penDownZ = document.getElementById('penDownZValue').value;
+        const penUpZ = document.getElementById('penUpZValue').value;
+        const preventZhop = document.getElementById('preventZhopValue').value;
+        const pixelsPerMm = this.pixelsPerMm;
+        
+        let gcode = '';
+        let isFirstMove = true;
+        let lastX = 0, lastY = 0;
+        
+        // Parse SVG path data
+        const commands = pathData.match(/[MLZ][^MLZ]*/gi) || [];
+        
+        commands.forEach(command => {
+            const type = command[0];
+            const coords = command.slice(1).trim().split(/[\s,]+/).map(parseFloat);
+            
+            if (type === 'M' && coords.length >= 2) {
+                // Move to - convert pixels to mm and ensure bounds checking
+                const x = Math.max(0, Math.min(this.getCanvasWidth(), coords[0] / pixelsPerMm));
+                const y = Math.max(0, Math.min(this.getCanvasHeight(), coords[1] / pixelsPerMm));
+                
+                if (!isFirstMove) {
+                    // Calculate distance for Z-hop optimization
+                    const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
+                    if (distance >= preventZhop) {
+                        gcode += `G0 Z${penUpZ} ; Pen up for move\n`;
+                        gcode += `G0 X${x.toFixed(3)} Y${y.toFixed(3)} ; Move to start\n`;
+                    } else {
+                        gcode += `G0 X${x.toFixed(3)} Y${y.toFixed(3)} ; Quick move\n`;
+                    }
+                } else {
+                    gcode += `G0 X${x.toFixed(3)} Y${y.toFixed(3)} ; Move to start\n`;
+                    isFirstMove = false;
+                }
+                
+                gcode += `G0 Z${penDownZ} ; Pen down\n`;
+                lastX = x;
+                lastY = y;
+                
+            } else if (type === 'L' && coords.length >= 2) {
+                // Line to - convert pixels to mm and ensure bounds checking
+                const x = Math.max(0, Math.min(this.getCanvasWidth(), coords[0] / pixelsPerMm));
+                const y = Math.max(0, Math.min(this.getCanvasHeight(), coords[1] / pixelsPerMm));
+                
+                gcode += `G1 X${x.toFixed(3)} Y${y.toFixed(3)} F${feedRate} ; Draw line\n`;
+                lastX = x;
+                lastY = y;
+            }
+        });
+        
+        return gcode;
+    }
+
+    downloadFile(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     }
 }
 

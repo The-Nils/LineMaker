@@ -1,3 +1,93 @@
+/* Layer Panel Styles */
+.layer-panel {
+    margin-top: 10px;
+}
+
+.layer-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f8f9fa;
+}
+
+.layer-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.2s ease;
+}
+
+.layer-item:last-child {
+    border-bottom: none;
+}
+
+.layer-item:hover {
+    background-color: #e9ecef;
+}
+
+.layer-item.selected {
+    background-color: #007bff;
+    color: white;
+}
+
+.layer-item.selected:hover {
+    background-color: #0056b3;
+}
+
+.layer-color-indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    margin-right: 8px;
+    border: 1px solid #ccc;
+    flex-shrink: 0;
+}
+
+.layer-info {
+    flex-grow: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+}
+
+.layer-name {
+    font-weight: 500;
+}
+
+.layer-params {
+    font-size: 11px;
+    opacity: 0.7;
+    color: inherit;
+}
+
+.layer-item.selected .layer-params {
+    opacity: 0.9;
+}
+
+.layer-editor-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.layer-editor-header .layer-color-indicator {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+}
+
+.layer-editor-header span {
+    font-weight: 500;
+    font-size: 14px;
+}
+
 /* Modal Styles */
 .modal {
     position: fixed;
