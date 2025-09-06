@@ -73,13 +73,72 @@ class FieldLines {
         
         this.modalCurveEditor.on('change', (curveData) => {
             if (this.selectedPointIndex !== -1) {
-                // Update the specific point's curve data
-                this.points[this.selectedPointIndex].curveData = curveData;
+                // Create independent curve data for this point
+                const controlPoints = curveData.points.map(p => ({ x: p.x, y: p.y })); // Deep copy points
+                this.points[this.selectedPointIndex].curveData = {
+                    points: controlPoints,
+                    evaluate: this.createCurveEvaluator(controlPoints)
+                };
                 // Regenerate automatically with smooth curves
                 this.generateAllLayers();
                 this.draw();
             }
         });
+    }
+
+    createCurveEvaluator(controlPoints) {
+        // Create a static evaluator function based on control points
+        // This avoids creating temporary CurveEditor instances
+        return function(x) {
+            x = Math.max(0, Math.min(1, x));
+            
+            if (controlPoints.length < 2) return 0;
+            if (controlPoints.length === 2) {
+                // Pure linear interpolation for 2 points
+                const p0 = controlPoints[0];
+                const p1 = controlPoints[1];
+                if (p1.x === p0.x) return p0.y;
+                const t = (x - p0.x) / (p1.x - p0.x);
+                return Math.max(0, Math.min(1, p0.y + (p1.y - p0.y) * t));
+            }
+            
+            // Find segment
+            let i = 0;
+            for (i = 0; i < controlPoints.length - 1; i++) {
+                if (x <= controlPoints[i + 1].x) break;
+            }
+            
+            // Boundary conditions
+            if (i === 0 && x < controlPoints[0].x) return controlPoints[0].y;
+            if (i >= controlPoints.length - 1) return controlPoints[controlPoints.length - 1].y;
+            
+            // Get 4 points for cubic interpolation (with proper boundary handling)
+            const p0 = i > 0 ? controlPoints[i - 1] : controlPoints[i];
+            const p1 = controlPoints[i];
+            const p2 = controlPoints[i + 1];
+            const p3 = i < controlPoints.length - 2 ? controlPoints[i + 2] : controlPoints[i + 1];
+            
+            // Parameterize within segment
+            const t = (x - p1.x) / (p2.x - p1.x);
+            
+            // Hermite cubic interpolation (stable alternative to Catmull-Rom)
+            const t2 = t * t;
+            const t3 = t2 * t;
+            
+            // Calculate tangents
+            const m0 = i > 0 ? 0.5 * ((p2.y - p0.y) / Math.max(0.001, p2.x - p0.x)) : 0;
+            const m1 = i < controlPoints.length - 2 ? 0.5 * ((p3.y - p1.y) / Math.max(0.001, p3.x - p1.x)) : 0;
+            
+            // Hermite basis functions
+            const h00 = 2*t3 - 3*t2 + 1;
+            const h10 = t3 - 2*t2 + t;
+            const h01 = -2*t3 + 3*t2;
+            const h11 = t3 - t2;
+            
+            const result = h00 * p1.y + h10 * m0 * (p2.x - p1.x) + h01 * p2.y + h11 * m1 * (p2.x - p1.x);
+            
+            return Math.max(0, Math.min(1, result));
+        };
     }
 
     setupEventListeners() {
@@ -200,12 +259,17 @@ class FieldLines {
             const newPointRadius = document.getElementById('newPointRadiusValue').value * this.pixelsPerMm;
             const newPointAllowCrossing = document.getElementById('newPointAllowCrossing').checked;
 
+            const curveData = this.newPointCurveEditor.getCurveData();
+            const controlPoints = curveData.points.map(p => ({ x: p.x, y: p.y })); // Deep copy points
             this.drawnLines.push({
                 points: smoothedLine,
                 mode: newPointMode,
                 force: newPointForce,
                 radius: newPointRadius,
-                curveData: this.newPointCurveEditor.getCurveData(),
+                curveData: {
+                    points: controlPoints,
+                    evaluate: this.createCurveEvaluator(controlPoints)
+                },
                 allowCrossing: newPointAllowCrossing
             });
         }
@@ -239,13 +303,18 @@ class FieldLines {
         const newPointRadius = document.getElementById('newPointRadiusValue').value * this.pixelsPerMm;
         const newPointAllowCrossing = document.getElementById('newPointAllowCrossing').checked;
 
+        const curveData = this.newPointCurveEditor.getCurveData();
+        const controlPoints = curveData.points.map(p => ({ x: p.x, y: p.y })); // Deep copy points
         this.points.push({
             x: point.x,
             y: point.y,
             mode: newPointMode,
             force: newPointForce,
             radius: newPointRadius,
-            curveData: this.newPointCurveEditor.getCurveData(),
+            curveData: {
+                points: controlPoints,
+                evaluate: this.createCurveEvaluator(controlPoints)
+            },
             allowCrossing: newPointAllowCrossing
         });
     }
