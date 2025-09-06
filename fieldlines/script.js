@@ -37,6 +37,50 @@ class FieldLines {
         // Check for URL config parameter
         this.checkForUrlConfig();
     }
+    
+    initializeCurveEditors() {
+        // Initialize new point curve editor
+        const newPointContainer = document.getElementById('newPointCurveEditor');
+        this.newPointCurveEditor = new CurveEditor(newPointContainer, {
+            width: 160,
+            height: 120,
+            backgroundColor: '#ffffff',
+            curveColor: '#007bff',
+            pointColor: '#007bff'
+        });
+        
+        // Set default curve (similar to falloff 0.7)
+        this.newPointCurveEditor.setCurve([
+            { x: 0, y: 1 },      // Full force at center
+            { x: 0.7, y: 0.3 },  // Moderate falloff 
+            { x: 1, y: 0 }       // No force at edge
+        ]);
+        
+        this.newPointCurveEditor.on('change', () => {
+            // Don't redraw automatically - curve only affects new points
+            // this.draw();
+        });
+        
+        // Initialize modal curve editor
+        const modalContainer = document.getElementById('pointCurveEditor');
+        this.modalCurveEditor = new CurveEditor(modalContainer, {
+            width: 160,
+            height: 120,
+            backgroundColor: '#ffffff',
+            curveColor: '#007bff',
+            pointColor: '#007bff'
+        });
+        
+        this.modalCurveEditor.on('change', (curveData) => {
+            if (this.selectedPointIndex !== -1) {
+                // Update the specific point's curve data
+                this.points[this.selectedPointIndex].curveData = curveData;
+                // Regenerate automatically with smooth curves
+                this.generateAllLayers();
+                this.draw();
+            }
+        });
+    }
 
     setupEventListeners() {
         // Canvas size
@@ -70,7 +114,9 @@ class FieldLines {
         // New point settings
         this.syncInputs('newPointForce', 'newPointForceValue');
         this.syncInputs('newPointRadius', 'newPointRadiusValue');
-        this.syncInputs('newPointFalloff', 'newPointFalloffValue');
+        
+        // Initialize curve editors
+        this.initializeCurveEditors();
 
         // Buttons
         document.getElementById('drawModeBtn').addEventListener('click', (e) => this.toggleDrawMode(e));
@@ -104,7 +150,6 @@ class FieldLines {
         });
         this.syncInputs('pointForce', 'pointForceValue', () => this.updatePointData());
         this.syncInputs('pointRadius', 'pointRadiusValue', () => this.updatePointData());
-        this.syncInputs('pointFalloff', 'pointFalloffValue', () => this.updatePointData());
         document.getElementById('pointAllowCrossing').addEventListener('change', (e) => this.updatePointAllowCrossing(e));
         document.getElementById('deletePointBtn').addEventListener('click', () => this.deletePoint());
         
@@ -153,7 +198,6 @@ class FieldLines {
             const newPointMode = document.querySelector('input[name="newPointMode"]:checked').value;
             const newPointForce = document.getElementById('newPointForceValue').value;
             const newPointRadius = document.getElementById('newPointRadiusValue').value * this.pixelsPerMm;
-            const newPointFalloff = document.getElementById('newPointFalloffValue').value;
             const newPointAllowCrossing = document.getElementById('newPointAllowCrossing').checked;
 
             this.drawnLines.push({
@@ -161,7 +205,7 @@ class FieldLines {
                 mode: newPointMode,
                 force: newPointForce,
                 radius: newPointRadius,
-                falloff: newPointFalloff,
+                curveData: this.newPointCurveEditor.getCurveData(),
                 allowCrossing: newPointAllowCrossing
             });
         }
@@ -193,7 +237,6 @@ class FieldLines {
         const newPointMode = document.querySelector('input[name="newPointMode"]:checked').value;
         const newPointForce = document.getElementById('newPointForceValue').value;
         const newPointRadius = document.getElementById('newPointRadiusValue').value * this.pixelsPerMm;
-        const newPointFalloff = document.getElementById('newPointFalloffValue').value;
         const newPointAllowCrossing = document.getElementById('newPointAllowCrossing').checked;
 
         this.points.push({
@@ -202,7 +245,7 @@ class FieldLines {
             mode: newPointMode,
             force: newPointForce,
             radius: newPointRadius,
-            falloff: newPointFalloff,
+            curveData: this.newPointCurveEditor.getCurveData(),
             allowCrossing: newPointAllowCrossing
         });
     }
@@ -627,8 +670,17 @@ class FieldLines {
         document.getElementById('pointForceValue').value = point.force;
         document.getElementById('pointRadius').value = point.radius / this.pixelsPerMm;
         document.getElementById('pointRadiusValue').value = point.radius / this.pixelsPerMm;
-        document.getElementById('pointFalloff').value = point.falloff || 1;
-        document.getElementById('pointFalloffValue').value = point.falloff || 1;
+        // Set curve editor with point's curve data or default
+        if (point.curveData && point.curveData.points) {
+            this.modalCurveEditor.setCurve(point.curveData.points);
+        } else {
+            // Default curve for legacy points
+            this.modalCurveEditor.setCurve([
+                { x: 0, y: 1 },
+                { x: 0.7, y: 0.3 },
+                { x: 1, y: 0 }
+            ]);
+        }
         document.getElementById('pointAllowCrossing').checked = point.allowCrossing;
 
         this.modal.style.display = 'block';
@@ -649,7 +701,6 @@ class FieldLines {
         if (this.selectedPointIndex === -1) return;
         this.points[this.selectedPointIndex].force = document.getElementById('pointForceValue').value;
         this.points[this.selectedPointIndex].radius = document.getElementById('pointRadiusValue').value * this.pixelsPerMm;
-        this.points[this.selectedPointIndex].falloff = document.getElementById('pointFalloffValue').value;
         this.draw();
     }
 
@@ -721,9 +772,16 @@ class FieldLines {
                     this.points.forEach(fieldPoint => {
                         const dist = Math.sqrt(Math.pow(offsetX - fieldPoint.x, 2) + Math.pow(offsetY - fieldPoint.y, 2));
                         if (dist < fieldPoint.radius) {
-                            const falloff = fieldPoint.falloff || 1;
                             const normalizedDist = dist / fieldPoint.radius;
-                            let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
+                            let curveValue;
+                            if (fieldPoint.curveData && fieldPoint.curveData.evaluate) {
+                                curveValue = fieldPoint.curveData.evaluate(normalizedDist);
+                                // Clamp curve value to prevent artifacts
+                                curveValue = Math.max(0, Math.min(1, curveValue));
+                            } else {
+                                curveValue = 1 - normalizedDist; // Linear fallback
+                            }
+                            let force = fieldPoint.force * curveValue;
                             const angle = Math.atan2(offsetY - fieldPoint.y, offsetX - fieldPoint.x);
                             const direction = fieldPoint.mode === 'attract' ? -1 : 1;
 
@@ -741,9 +799,16 @@ class FieldLines {
                             const p2 = drawnLine.points[i];
                             const dist = Math.sqrt(Math.pow(offsetX - p2.x, 2) + Math.pow(offsetY - p2.y, 2));
                             if (dist < drawnLine.radius) {
-                                const falloff = drawnLine.falloff || 1;
                                 const normalizedDist = dist / drawnLine.radius;
-                                let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
+                                let curveValue;
+                                if (drawnLine.curveData && drawnLine.curveData.evaluate) {
+                                    curveValue = drawnLine.curveData.evaluate(normalizedDist);
+                                    // Clamp curve value to prevent artifacts
+                                    curveValue = Math.max(0, Math.min(1, curveValue));
+                                } else {
+                                    curveValue = 1 - normalizedDist; // Linear fallback
+                                }
+                                let force = drawnLine.force * curveValue;
                                 const angle = Math.atan2(offsetY - p2.y, offsetX - p2.x);
                                 const direction = drawnLine.mode === 'attract' ? -1 : 1;
 
@@ -886,9 +951,15 @@ class FieldLines {
             this.points.forEach(fieldPoint => {
                 const dist = Math.sqrt(Math.pow(midOffsetX - fieldPoint.x, 2) + Math.pow(midOffsetY - fieldPoint.y, 2));
                 if (dist < fieldPoint.radius) {
-                    const falloff = fieldPoint.falloff || 1;
                     const normalizedDist = dist / fieldPoint.radius;
-                    let force = fieldPoint.force * Math.pow(1 - normalizedDist, falloff);
+                    let curveValue;
+                    if (fieldPoint.curveData && fieldPoint.curveData.evaluate) {
+                        curveValue = fieldPoint.curveData.evaluate(normalizedDist);
+                        curveValue = Math.max(0, Math.min(1, curveValue));
+                    } else {
+                        curveValue = 1 - normalizedDist; // Linear fallback
+                    }
+                    let force = fieldPoint.force * curveValue;
                     const angle = Math.atan2(midOffsetY - fieldPoint.y, midOffsetX - fieldPoint.x);
                     const direction = fieldPoint.mode === 'attract' ? -1 : 1;
                     
@@ -907,9 +978,15 @@ class FieldLines {
                     const p2 = drawnLine.points[j];
                     const dist = Math.sqrt(Math.pow(midOffsetX - p2.x, 2) + Math.pow(midOffsetY - p2.y, 2));
                     if (dist < drawnLine.radius) {
-                        const falloff = drawnLine.falloff || 1;
                         const normalizedDist = dist / drawnLine.radius;
-                        let force = drawnLine.force * Math.pow(1 - normalizedDist, falloff);
+                        let curveValue;
+                        if (drawnLine.curveData && drawnLine.curveData.evaluate) {
+                            curveValue = drawnLine.curveData.evaluate(normalizedDist);
+                            curveValue = Math.max(0, Math.min(1, curveValue));
+                        } else {
+                            curveValue = 1 - normalizedDist; // Linear fallback
+                        }
+                        let force = drawnLine.force * curveValue;
                         const angle = Math.atan2(midOffsetY - p2.y, midOffsetX - p2.x);
                         const direction = drawnLine.mode === 'attract' ? -1 : 1;
                         
@@ -1015,7 +1092,7 @@ class FieldLines {
             // New point defaults
             newPointForce: document.getElementById('newPointForceValue').value,
             newPointRadius: document.getElementById('newPointRadiusValue').value,
-            newPointFalloff: document.getElementById('newPointFalloffValue').value,
+            newPointCurve: this.newPointCurveEditor.getCurveData(),
             newPointMode: document.querySelector('input[name="newPointMode"]:checked').value,
             newPointAllowCrossing: document.getElementById('newPointAllowCrossing').checked,
             
@@ -1056,8 +1133,11 @@ class FieldLines {
         document.getElementById('newPointForce').value = params.newPointForce || "50";
         document.getElementById('newPointRadiusValue').value = params.newPointRadius || "24";
         document.getElementById('newPointRadius').value = params.newPointRadius || "24";
-        document.getElementById('newPointFalloffValue').value = params.newPointFalloff || "0.7";
-        document.getElementById('newPointFalloff').value = params.newPointFalloff || "0.7";
+        
+        // Restore curve editor data
+        if (params.newPointCurve && params.newPointCurve.points) {
+            this.newPointCurveEditor.setCurve(params.newPointCurve.points);
+        }
         
         if (params.newPointMode) {
             document.querySelector(`input[name="newPointMode"][value="${params.newPointMode}"]`).checked = true;
