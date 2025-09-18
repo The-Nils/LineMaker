@@ -117,6 +117,33 @@
                 </div>
                 <a href="fieldlines/index.html" class="tool-link">Open FieldLines</a>
               </div>
+
+              <div class="tool-card">
+                <div class="tool-icon">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <g transform="translate(12,12)">
+                            <g>
+                                <path d="M0,-8 L4,-4 L0,0 L-4,-4 Z" fill="currentColor" opacity="0.8"/>
+                                <path d="M0,-8 L4,-4 L0,0 L-4,-4 Z" fill="none" transform="rotate(60)" opacity="0.6"/>
+                                <path d="M0,-8 L4,-4 L0,0 L-4,-4 Z" fill="none" transform="rotate(120)" opacity="0.4"/>
+                                <path d="M0,-8 L4,-4 L0,0 L-4,-4 Z" fill="none" transform="rotate(180)" opacity="0.4"/>
+                                <path d="M0,-8 L4,-4 L0,0 L-4,-4 Z" fill="none" transform="rotate(240)" opacity="0.6"/>
+                                <path d="M0,-8 L4,-4 L0,0 L-4,-4 Z" fill="none" transform="rotate(300)" opacity="0.8"/>
+                            </g>
+                            <circle cx="0" cy="0" r="2" fill="currentColor"/>
+                        </g>
+                    </svg>
+                </div>
+                <h2>Kaleidoscope</h2>
+                <p>Create beautiful kaleidoscope patterns by drawing on one segment that automatically mirrors across multiple segments.</p>
+                <div class="tool-features">
+                    <span class="feature">Drawing Tool</span>
+                    <span class="feature">Multi-Layer</span>
+                    <span class="feature">Real-time Preview</span>
+                    <span class="feature">SVG Export</span>
+                </div>
+                <a href="kaleidoscope/index.html" class="tool-link">Open Kaleidoscope</a>
+              </div>
             </div>
           </div>
 
@@ -220,6 +247,8 @@
           const toolNames = {
             hatchmaker: "HatchMaker",
             moiremaker: "HatchMoiréMaker",
+            fieldlines: "FieldLines",
+            kaleidoscope: "Kaleidoscope",
           };
           return toolNames[toolId] || toolId;
         }

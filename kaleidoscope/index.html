@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaleidoscope - LineMaker</title>
+    <link rel="stylesheet" href="../tool-styles.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="main-layout">
+            <div class="sidebar">
+                <div class="header-section">
+                    <div class="header-row">
+                        <a href="../index.html" class="back-button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5"/>
+                                <path d="M12 19l-7-7 7-7"/>
+                            </svg>
+                        </a>
+                        <h2 class="tool-title">Kaleidoscope</h2>
+                    </div>
+                    <div class="button-row">
+                        <button class="action-btn" id="clearCanvasBtn">Clear Canvas</button>
+                    </div>
+                    <div class="button-row">
+                        <button class="action-btn" id="saveConfigBtn">Save Config</button>
+                        <button class="action-btn" id="loadConfigBtn">Load Config</button>
+                    </div>
+                    
+                    <div class="download-section">
+                        <div class="download-dropdown">
+                            <button class="download-btn primary compact" id="svgDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                SVG
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="svgDropdown">
+                                <a href="#" id="downloadSvgBtn">Combined SVG</a>
+                                <a href="#" id="downloadIndividualSvgBtn">Individual Layers SVG</a>
+                            </div>
+                        </div>
+                        
+                        <div class="download-dropdown">
+                            <button class="download-btn secondary compact" id="gcodeDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                G-code
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="gcodeDropdown">
+                                <a href="#" id="downloadGcodeBtn">Combined G-code</a>
+                                <a href="#" id="downloadIndividualGcodeBtn">Individual Layers G-code</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="scrollable-controls">
+
+                    <div class="control-group">
+                        <h3>Kaleidoscope Settings</h3>
+                        <div class="input-row">
+                            <label>Repetitions:</label>
+                            <input type="range" id="repetitionsSlider" min="1" max="50" step="1" value="6">
+                            <input type="number" id="repetitionsValue" min="1" max="50" step="1" value="6">
+                        </div>
+                        <div class="value-display" id="repetitionsDisplay">6 segments (60°)</div>
+                        
+                        <div class="input-row">
+                            <label>
+                                <input type="checkbox" id="showSectionsValue" style="width: auto; margin-right: 8px;">
+                                Show Section Boundaries
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Canvas Size</h3>
+                        <div class="input-row">
+                            <label>Width:</label>
+                            <input type="number" id="canvasWidthValue" min="10" max="2000" step="1" value="200">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Height:</label>
+                            <input type="number" id="canvasHeightValue" min="10" max="2000" step="1" value="200">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Pen Settings</h3>
+                        <div class="input-row">
+                            <label>Pen Diameter:</label>
+                            <input type="number" id="penDiameterValue" min="0.1" max="10" step="0.1" value="0.5">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Input Smoothing:</label>
+                            <input type="range" id="inputSmoothingSlider" min="0" max="1" step="0.1" value="0.5">
+                            <input type="number" id="inputSmoothingValue" min="0" max="1" step="0.1" value="0.5">
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>G-code Settings</h3>
+                        <div class="input-row">
+                            <label>Feed Rate:</label>
+                            <input type="number" id="feedRateValue" min="50" max="10000" step="10" value="2500">
+                            <span class="unit-label">mm/min</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Pen Down Z:</label>
+                            <input type="number" id="penDownZValue" min="-20" max="5" step="0.01" value="-1">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Pen Up Z:</label>
+                            <input type="number" id="penUpZValue" min="0" max="50" step="0.01" value="2">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Skip Z-hop for moves &lt;</label>
+                            <input type="number" id="preventZhopValue" min="0" max="50" step="0.1" value="2">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Layers</h3>
+                        <div class="input-row">
+                            <button class="action-btn" id="addLayerBtn">Add Layer</button>
+                        </div>
+                        
+                        <div class="layer-panel">
+                            <div id="layerList" class="layer-list">
+                                <!-- Layer items will be generated here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="layerEditor" style="display: none;">
+                        <h3>Layer Editor</h3>
+                        <div class="layer-editor-header">
+                            <div class="layer-color-indicator" id="currentLayerColor"></div>
+                            <span id="currentLayerName">Layer 1</span>
+                        </div>
+                        
+                        <div class="input-row">
+                            <label>Color:</label>
+                            <input type="color" id="layerColorValue" value="#ff6b35">
+                        </div>
+                        <div class="input-row">
+                            <button class="action-btn" id="removeCurrentLayerBtn" style="background: #e74c3c; color: white;">Remove This Layer</button>
+                        </div>
+                    </div>
+
+
+                </div>
+            </div>
+
+            <div class="preview-area">
+                <div class="canvas-controls" style="position: absolute; top: 10px; right: 10px; z-index: 100; display: flex; gap: 5px;">
+                    <button id="fitToContentBtn" class="canvas-control-btn" title="Fit to Content">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                    </button>
+                    <button id="resetViewBtn" class="canvas-control-btn" title="Reset View">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 4v6h6M23 20v-6h-6"/>
+                            <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="svg-stack" id="svgContainer">
+                    <svg id="kaleidoscopeSvg" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet" style="position: absolute; top: 0; left: 0; pointer-events: auto;">
+                        <rect width="100%" height="100%" fill="white"/>
+                        <g id="section-overlay" class="overlay-lines" style="display: none;"></g>
+                    </svg>
+                </div>
+                <div class="angle-display" id="angleDisplay">6 segments (60°)</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../configManager.js"></script>
+    <script src="../interactiveCanvas.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

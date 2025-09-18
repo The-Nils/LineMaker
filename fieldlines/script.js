@@ -903,18 +903,23 @@ class FieldLines {
 
                 // Second pass: recursively subdivide segments that are too long
                 const finalLine = this.recursiveSubdivision(deformedLine, layer);
-
-                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                let d = `M ${finalLine[0].x} ${finalLine[0].y}`;
-                for (let i = 1; i < finalLine.length; i++) {
-                    d += ` L ${finalLine[i].x} ${finalLine[i].y}`;
+                
+                // Third pass: remove redundant clamped points for cleaner SVG
+                const cleanedLine = this.removeRedundantClampedPointsForSvg(finalLine);
+                
+                if (cleanedLine.length >= 2) { // Only create path if we have at least 2 points
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let d = `M ${cleanedLine[0].x} ${cleanedLine[0].y}`;
+                    for (let i = 1; i < cleanedLine.length; i++) {
+                        d += ` L ${cleanedLine[i].x} ${cleanedLine[i].y}`;
+                    }
+                    path.setAttribute('d', d);
+                    path.setAttribute('stroke', layer.color);
+                    path.setAttribute('fill', 'none');
+                    const penDiameter = document.getElementById('penDiameterValue').value;
+                    path.setAttribute('stroke-width', penDiameter);
+                    layer.group.appendChild(path);
                 }
-                path.setAttribute('d', d);
-                path.setAttribute('stroke', layer.color);
-                path.setAttribute('fill', 'none');
-                const penDiameter = document.getElementById('penDiameterValue').value;
-                path.setAttribute('stroke-width', penDiameter);
-                layer.group.appendChild(path);
             });
         });
 
@@ -1349,6 +1354,53 @@ class FieldLines {
     generateCombinedGcode() {
         let gcode = this.getGcodeHeader();
         
+        // Collect all paths from all layers with their path data
+        const allPaths = [];
+        let totalPaths = 0;
+        
+        this.layers.forEach((layer, layerIndex) => {
+            if (layer.group) {
+                const paths = layer.group.querySelectorAll('path');
+                totalPaths += paths.length;
+                paths.forEach(path => {
+                    const pathData = this.parsePathData(path.getAttribute('d'));
+                    if (pathData.length > 0) {
+                        allPaths.push({
+                            pathData: pathData,
+                            layerIndex: layerIndex,
+                            originalPath: path.getAttribute('d')
+                        });
+                    }
+                });
+            }
+        });
+        
+        console.log(`Processing ${allPaths.length} paths for G-code generation`);
+        
+        // If too many paths, fall back to simple layer-by-layer processing
+        if (allPaths.length > 200) {
+            console.log('Too many paths for full optimization, using simple approach');
+            return this.generateCombinedGcodeSimple();
+        }
+        
+        // Optimize path order to minimize travel moves
+        const optimizedPaths = this.optimizePathOrderSafe(allPaths);
+        
+        // Convert optimized paths to G-code
+        optimizedPaths.forEach((pathInfo, index) => {
+            if (index % 50 === 0) {
+                console.log(`Processing path ${index + 1}/${optimizedPaths.length}`);
+            }
+            gcode += this.convertOptimizedPathToGcode(pathInfo.pathData);
+        });
+        
+        gcode += this.getGcodeFooter();
+        return gcode;
+    }
+
+    generateCombinedGcodeSimple() {
+        let gcode = this.getGcodeHeader();
+        
         this.layers.forEach((layer) => {
             if (layer.group) {
                 const paths = layer.group.querySelectorAll('path');
@@ -1366,12 +1418,31 @@ class FieldLines {
         let gcode = this.getGcodeHeader();
         gcode += `; Layer ${index + 1}\n`;
         
+        // Collect paths from this layer only
+        const layerPaths = [];
         if (layer.group) {
             const paths = layer.group.querySelectorAll('path');
             paths.forEach(path => {
-                gcode += this.convertPathToGcode(path.getAttribute('d'));
+                const pathData = this.parsePathData(path.getAttribute('d'));
+                if (pathData.length > 0) {
+                    layerPaths.push({
+                        pathData: pathData,
+                        layerIndex: index,
+                        originalPath: path.getAttribute('d')
+                    });
+                }
             });
         }
+        
+        console.log(`Layer ${index + 1}: Processing ${layerPaths.length} paths`);
+        
+        // Use safer optimization for individual layers
+        const optimizedPaths = this.optimizePathOrderSafe(layerPaths);
+        
+        // Convert optimized paths to G-code
+        optimizedPaths.forEach(pathInfo => {
+            gcode += this.convertOptimizedPathToGcode(pathInfo.pathData);
+        });
         
         gcode += this.getGcodeFooter();
         return gcode;
@@ -1461,6 +1532,522 @@ M30 ; Program end
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+    }
+
+    // Path optimization methods
+    parsePathData(pathData) {
+        const segments = [];
+        const commands = pathData.match(/[MLZ][^MLZ]*/gi) || [];
+        
+        let currentSegment = [];
+        
+        commands.forEach(command => {
+            const type = command[0];
+            const coords = command.slice(1).trim().split(/[\s,]+/).map(parseFloat);
+            
+            if (type === 'M' && coords.length >= 2) {
+                // Start new segment
+                if (currentSegment.length > 0) {
+                    segments.push([...currentSegment]);
+                }
+                currentSegment = [{x: coords[0], y: coords[1]}];
+            } else if (type === 'L' && coords.length >= 2) {
+                // Add point to current segment
+                currentSegment.push({x: coords[0], y: coords[1]});
+            }
+        });
+        
+        // Add final segment
+        if (currentSegment.length > 0) {
+            segments.push(currentSegment);
+        }
+        
+        return segments;
+    }
+
+    optimizePathOrderSafe(pathInfos) {
+        if (pathInfos.length <= 1) return pathInfos;
+        
+        // Limit the number of paths we try to optimize to prevent crashes
+        if (pathInfos.length > 100) {
+            console.log(`Too many paths (${pathInfos.length}) for optimization, using simple nearest neighbor`);
+            return this.optimizePathOrderSimple(pathInfos);
+        }
+        
+        return this.optimizePathOrder(pathInfos);
+    }
+
+    optimizePathOrder(pathInfos) {
+        if (pathInfos.length <= 1) return pathInfos;
+        
+        // For large numbers of paths, use a more sophisticated approach
+        if (pathInfos.length > 50) {
+            return this.optimizePathOrderAdvanced(pathInfos);
+        }
+        
+        const optimized = [];
+        const remaining = [...pathInfos];
+        let currentPosition = {x: 0, y: 0}; // Start at origin
+        
+        while (remaining.length > 0) {
+            let closestIndex = 0;
+            let shortestDistance = Infinity;
+            let shouldReverse = false;
+            
+            // Find the closest path start or end
+            remaining.forEach((pathInfo, index) => {
+                if (pathInfo.pathData.length === 0) return;
+                
+                // Check first segment
+                const firstSegment = pathInfo.pathData[0];
+                const lastSegment = pathInfo.pathData[pathInfo.pathData.length - 1];
+                
+                if (firstSegment.length === 0) return;
+                
+                // Distance to start of path
+                const startPoint = firstSegment[0];
+                const distToStart = Math.sqrt(
+                    Math.pow(currentPosition.x - startPoint.x, 2) + 
+                    Math.pow(currentPosition.y - startPoint.y, 2)
+                );
+                
+                // Distance to end of path (if we can reverse)
+                const endPoint = lastSegment[lastSegment.length - 1];
+                const distToEnd = Math.sqrt(
+                    Math.pow(currentPosition.x - endPoint.x, 2) + 
+                    Math.pow(currentPosition.y - endPoint.y, 2)
+                );
+                
+                if (distToStart < shortestDistance) {
+                    shortestDistance = distToStart;
+                    closestIndex = index;
+                    shouldReverse = false;
+                } else if (distToEnd < shortestDistance) {
+                    shortestDistance = distToEnd;
+                    closestIndex = index;
+                    shouldReverse = true;
+                }
+            });
+            
+            // Add the closest path to optimized list
+            const selectedPath = remaining.splice(closestIndex, 1)[0];
+            
+            if (shouldReverse) {
+                // Reverse all segments and points within segments
+                selectedPath.pathData = selectedPath.pathData.map(segment => 
+                    [...segment].reverse()
+                ).reverse();
+            }
+            
+            optimized.push(selectedPath);
+            
+            // Update current position to end of this path
+            if (selectedPath.pathData.length > 0) {
+                const lastSegment = selectedPath.pathData[selectedPath.pathData.length - 1];
+                if (lastSegment.length > 0) {
+                    currentPosition = lastSegment[lastSegment.length - 1];
+                }
+            }
+        }
+        
+        return optimized;
+    }
+
+    optimizePathOrderAdvanced(pathInfos) {
+        // For large numbers of paths, use spatial clustering and local optimization
+        const clusters = this.clusterPathsSpatially(pathInfos, 4); // Create 4 spatial clusters
+        const optimizedClusters = [];
+        let currentPosition = {x: 0, y: 0};
+        
+        // Process each cluster in order of proximity
+        const remainingClusters = [...clusters];
+        
+        while (remainingClusters.length > 0) {
+            // Find closest cluster
+            let closestClusterIndex = 0;
+            let shortestDistanceToCluster = Infinity;
+            
+            remainingClusters.forEach((cluster, index) => {
+                const clusterCenter = this.getClusterCenter(cluster);
+                const distanceToCenter = Math.sqrt(
+                    Math.pow(currentPosition.x - clusterCenter.x, 2) + 
+                    Math.pow(currentPosition.y - clusterCenter.y, 2)
+                );
+                
+                if (distanceToCenter < shortestDistanceToCluster) {
+                    shortestDistanceToCluster = distanceToCenter;
+                    closestClusterIndex = index;
+                }
+            });
+            
+            // Optimize within the closest cluster
+            const selectedCluster = remainingClusters.splice(closestClusterIndex, 1)[0];
+            const optimizedCluster = this.optimizePathOrder(selectedCluster);
+            optimizedClusters.push(...optimizedCluster);
+            
+            // Update position to end of cluster
+            if (optimizedCluster.length > 0) {
+                const lastPath = optimizedCluster[optimizedCluster.length - 1];
+                if (lastPath.pathData.length > 0) {
+                    const lastSegment = lastPath.pathData[lastPath.pathData.length - 1];
+                    if (lastSegment.length > 0) {
+                        currentPosition = lastSegment[lastSegment.length - 1];
+                    }
+                }
+            }
+        }
+        
+        return optimizedClusters;
+    }
+
+    clusterPathsSpatially(pathInfos, numClusters) {
+        if (pathInfos.length <= numClusters) {
+            return pathInfos.map(path => [path]);
+        }
+        
+        // Initialize clusters with k-means style approach
+        const clusters = [];
+        for (let i = 0; i < numClusters; i++) {
+            clusters.push([]);
+        }
+        
+        // Assign each path to nearest cluster center
+        pathInfos.forEach(pathInfo => {
+            if (pathInfo.pathData.length === 0) return;
+            
+            const pathCenter = this.getPathCenter(pathInfo);
+            let closestCluster = 0;
+            let shortestDistance = Infinity;
+            
+            for (let i = 0; i < numClusters; i++) {
+                // Use grid-based cluster centers
+                const clusterCenterX = (i % 2) * this.width;
+                const clusterCenterY = Math.floor(i / 2) * this.height;
+                
+                const distance = Math.sqrt(
+                    Math.pow(pathCenter.x - clusterCenterX, 2) + 
+                    Math.pow(pathCenter.y - clusterCenterY, 2)
+                );
+                
+                if (distance < shortestDistance) {
+                    shortestDistance = distance;
+                    closestCluster = i;
+                }
+            }
+            
+            clusters[closestCluster].push(pathInfo);
+        });
+        
+        return clusters.filter(cluster => cluster.length > 0);
+    }
+
+    getPathCenter(pathInfo) {
+        if (pathInfo.pathData.length === 0) return {x: 0, y: 0};
+        
+        let totalX = 0, totalY = 0, totalPoints = 0;
+        
+        pathInfo.pathData.forEach(segment => {
+            segment.forEach(point => {
+                totalX += point.x;
+                totalY += point.y;
+                totalPoints++;
+            });
+        });
+        
+        return totalPoints > 0 ? {
+            x: totalX / totalPoints,
+            y: totalY / totalPoints
+        } : {x: 0, y: 0};
+    }
+
+    getClusterCenter(cluster) {
+        if (cluster.length === 0) return {x: 0, y: 0};
+        
+        let totalX = 0, totalY = 0;
+        
+        cluster.forEach(pathInfo => {
+            const center = this.getPathCenter(pathInfo);
+            totalX += center.x;
+            totalY += center.y;
+        });
+        
+        return {
+            x: totalX / cluster.length,
+            y: totalY / cluster.length
+        };
+    }
+
+    optimizePathOrderSimple(pathInfos) {
+        // Very simple optimization: just use nearest neighbor without complex calculations
+        if (pathInfos.length <= 1) return pathInfos;
+        
+        const optimized = [];
+        const remaining = [...pathInfos];
+        let currentPosition = {x: 0, y: 0}; // Start at origin
+        
+        // Process in batches to avoid hanging the browser
+        const batchSize = 20;
+        let processed = 0;
+        
+        while (remaining.length > 0 && processed < pathInfos.length) {
+            let closestIndex = 0;
+            let shortestDistance = Infinity;
+            
+            // Only check a limited number of paths to find the closest
+            const searchLimit = Math.min(batchSize, remaining.length);
+            
+            for (let i = 0; i < searchLimit; i++) {
+                const pathInfo = remaining[i];
+                if (pathInfo.pathData.length === 0) continue;
+                
+                const firstSegment = pathInfo.pathData[0];
+                if (firstSegment.length === 0) continue;
+                
+                // Just check distance to start of path (no reversal optimization)
+                const startPoint = firstSegment[0];
+                const distToStart = Math.sqrt(
+                    Math.pow(currentPosition.x - startPoint.x, 2) + 
+                    Math.pow(currentPosition.y - startPoint.y, 2)
+                );
+                
+                if (distToStart < shortestDistance) {
+                    shortestDistance = distToStart;
+                    closestIndex = i;
+                }
+            }
+            
+            // Add the closest path to optimized list
+            const selectedPath = remaining.splice(closestIndex, 1)[0];
+            optimized.push(selectedPath);
+            
+            // Update current position to end of this path
+            if (selectedPath.pathData.length > 0) {
+                const lastSegment = selectedPath.pathData[selectedPath.pathData.length - 1];
+                if (lastSegment.length > 0) {
+                    currentPosition = lastSegment[lastSegment.length - 1];
+                }
+            }
+            
+            processed++;
+            
+            // Give browser a chance to breathe
+            if (processed % 10 === 0) {
+                console.log(`Simple optimization progress: ${processed}/${pathInfos.length}`);
+            }
+        }
+        
+        // Add any remaining paths without optimization
+        if (remaining.length > 0) {
+            console.log(`Adding ${remaining.length} remaining paths without optimization`);
+            optimized.push(...remaining);
+        }
+        
+        return optimized;
+    }
+
+    convertOptimizedPathToGcode(pathSegments) {
+        const feedRate = document.getElementById('feedRateValue').value;
+        const penDownZ = document.getElementById('penDownZValue').value;
+        const penUpZ = document.getElementById('penUpZValue').value;
+        const preventZhop = document.getElementById('preventZhopValue').value;
+        const pixelsPerMm = this.pixelsPerMm;
+        
+        let gcode = '';
+        let lastX = null, lastY = null;
+        
+        pathSegments.forEach((segment) => {
+            if (segment.length === 0) return;
+            
+            // Remove redundant points that are clamped to same position
+            const cleanedSegment = this.removeRedundantClampedPoints(segment);
+            if (cleanedSegment.length < 2) return; // Skip segments that are too short after cleaning
+            
+            cleanedSegment.forEach((point, pointIndex) => {
+                // Convert pixels to mm and clamp to canvas bounds
+                const x = Math.max(0, Math.min(this.getCanvasWidth(), point.x / pixelsPerMm));
+                const y = Math.max(0, Math.min(this.getCanvasHeight(), point.y / pixelsPerMm));
+                
+                if (pointIndex === 0) {
+                    // First point of segment - move and pen down
+                    if (lastX !== null && lastY !== null) {
+                        const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
+                        if (distance >= preventZhop) {
+                            gcode += `G0 Z${penUpZ} ; Pen up for move\n`;
+                            gcode += `G0 X${x.toFixed(3)} Y${y.toFixed(3)} ; Move to start\n`;
+                        } else {
+                            gcode += `G0 X${x.toFixed(3)} Y${y.toFixed(3)} ; Quick move\n`;
+                        }
+                    } else {
+                        gcode += `G0 X${x.toFixed(3)} Y${y.toFixed(3)} ; Move to start\n`;
+                    }
+                    gcode += `G0 Z${penDownZ} ; Pen down\n`;
+                } else {
+                    // Subsequent points - draw line
+                    gcode += `G1 X${x.toFixed(3)} Y${y.toFixed(3)} F${feedRate} ; Draw line\n`;
+                }
+                
+                lastX = x;
+                lastY = y;
+            });
+        });
+        
+        return gcode;
+    }
+
+    removeRedundantClampedPoints(segment) {
+        if (segment.length <= 2) return segment;
+        
+        const pixelsPerMm = this.pixelsPerMm;
+        const canvasWidthPx = this.getCanvasWidth() * pixelsPerMm;
+        const canvasHeightPx = this.getCanvasHeight() * pixelsPerMm;
+        
+        const cleaned = [];
+        let i = 0;
+        
+        while (i < segment.length) {
+            const currentPoint = segment[i];
+            const currentClamped = this.getClampedPosition(currentPoint, canvasWidthPx, canvasHeightPx);
+            
+            if (currentClamped.isEdge) {
+                // Find all consecutive points that are clamped to the same edge
+                let j = i + 1;
+                const sameEdgePoints = [currentPoint];
+                
+                while (j < segment.length) {
+                    const nextPoint = segment[j];
+                    const nextClamped = this.getClampedPosition(nextPoint, canvasWidthPx, canvasHeightPx);
+                    
+                    // Check if on same edge
+                    const sameEdge = this.areOnSameEdgeGcode(currentClamped, nextClamped, canvasWidthPx, canvasHeightPx);
+                    
+                    if (nextClamped.isEdge && sameEdge) {
+                        sameEdgePoints.push(nextPoint);
+                        j++;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // For multiple points on the same edge, keep only first and last
+                if (sameEdgePoints.length > 2) {
+                    cleaned.push(sameEdgePoints[0]);
+                    cleaned.push(sameEdgePoints[sameEdgePoints.length - 1]);
+                } else {
+                    // Keep all points if 2 or fewer
+                    cleaned.push(...sameEdgePoints);
+                }
+                
+                i = j; // Skip to next non-edge point
+            } else {
+                cleaned.push(currentPoint);
+                i++;
+            }
+        }
+        
+        return cleaned;
+    }
+
+    getClampedPosition(point, canvasWidth, canvasHeight) {
+        const x = Math.max(0, Math.min(canvasWidth, point.x));
+        const y = Math.max(0, Math.min(canvasHeight, point.y));
+        
+        const isEdge = (x === 0 || x === canvasWidth || y === 0 || y === canvasHeight);
+        
+        return { x, y, isEdge };
+    }
+
+    removeRedundantClampedPointsForSvg(line) {
+        if (line.length <= 2) return line;
+        
+        const cleaned = [];
+        let i = 0;
+        
+        while (i < line.length) {
+            const currentPoint = line[i];
+            const currentClamped = {
+                x: Math.max(0, Math.min(this.width, currentPoint.x)),
+                y: Math.max(0, Math.min(this.height, currentPoint.y))
+            };
+            
+            // Check if current point is on an edge
+            const currentOnEdge = (currentClamped.x === 0 || currentClamped.x === this.width || 
+                                 currentClamped.y === 0 || currentClamped.y === this.height);
+            
+            if (currentOnEdge) {
+                // Find all consecutive points that are clamped to the same edge
+                let j = i + 1;
+                const sameEdgePoints = [currentPoint];
+                
+                while (j < line.length) {
+                    const nextPoint = line[j];
+                    const nextClamped = {
+                        x: Math.max(0, Math.min(this.width, nextPoint.x)),
+                        y: Math.max(0, Math.min(this.height, nextPoint.y))
+                    };
+                    
+                    const nextOnEdge = (nextClamped.x === 0 || nextClamped.x === this.width || 
+                                      nextClamped.y === 0 || nextClamped.y === this.height);
+                    
+                    // Check if on same edge
+                    const sameEdge = this.areOnSameEdge(currentClamped, nextClamped);
+                    
+                    if (nextOnEdge && sameEdge) {
+                        sameEdgePoints.push(nextPoint);
+                        j++;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // For multiple points on the same edge, keep only first and last
+                if (sameEdgePoints.length > 2) {
+                    cleaned.push(sameEdgePoints[0]);
+                    cleaned.push(sameEdgePoints[sameEdgePoints.length - 1]);
+                } else {
+                    // Keep all points if 2 or fewer
+                    cleaned.push(...sameEdgePoints);
+                }
+                
+                i = j; // Skip to next non-edge point
+            } else {
+                cleaned.push(currentPoint);
+                i++;
+            }
+        }
+        
+        return cleaned;
+    }
+
+    areOnSameEdge(point1, point2) {
+        // Check if both points are on the same edge of the canvas
+        const tolerance = 0.1;
+        
+        // Left edge
+        if (Math.abs(point1.x) < tolerance && Math.abs(point2.x) < tolerance) return true;
+        // Right edge  
+        if (Math.abs(point1.x - this.width) < tolerance && Math.abs(point2.x - this.width) < tolerance) return true;
+        // Top edge
+        if (Math.abs(point1.y) < tolerance && Math.abs(point2.y) < tolerance) return true;
+        // Bottom edge
+        if (Math.abs(point1.y - this.height) < tolerance && Math.abs(point2.y - this.height) < tolerance) return true;
+        
+        return false;
+    }
+
+    areOnSameEdgeGcode(point1, point2, canvasWidth, canvasHeight) {
+        // Check if both points are on the same edge of the canvas (for G-code coordinates)
+        const tolerance = 0.1;
+        
+        // Left edge
+        if (Math.abs(point1.x) < tolerance && Math.abs(point2.x) < tolerance) return true;
+        // Right edge  
+        if (Math.abs(point1.x - canvasWidth) < tolerance && Math.abs(point2.x - canvasWidth) < tolerance) return true;
+        // Top edge
+        if (Math.abs(point1.y) < tolerance && Math.abs(point2.y) < tolerance) return true;
+        // Bottom edge
+        if (Math.abs(point1.y - canvasHeight) < tolerance && Math.abs(point2.y - canvasHeight) < tolerance) return true;
+        
+        return false;
     }
 }
 

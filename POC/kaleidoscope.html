@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SVG Kaleidoscope Drawing App</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        background: #1a1a1a;
+        color: #e0e0e0;
+        overflow-x: hidden;
+      }
+
+      .container {
+        display: flex;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        width: 320px;
+        background: #2a2a2a;
+        padding: 20px;
+        border-right: 1px solid #404040;
+        overflow-y: auto;
+      }
+
+      .canvas-area {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #0f0f0f;
+        position: relative;
+      }
+
+      .control-group {
+        margin-bottom: 24px;
+      }
+
+      .control-group h3 {
+        color: #ffffff;
+        margin-bottom: 12px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .control {
+        margin-bottom: 16px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 14px;
+        color: #b0b0b0;
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #404040;
+        border-radius: 6px;
+        background: #1a1a1a;
+        color: #e0e0e0;
+        font-size: 14px;
+      }
+
+      input:focus,
+      select:focus {
+        outline: none;
+        border-color: #007acc;
+        box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+      }
+
+      input[type="color"] {
+        height: 40px;
+        padding: 4px;
+        cursor: pointer;
+      }
+
+      input[type="range"] {
+        background: transparent;
+        cursor: pointer;
+      }
+
+      input[type="range"]::-webkit-slider-track {
+        background: #404040;
+        height: 6px;
+        border-radius: 3px;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #007acc;
+        cursor: pointer;
+      }
+
+      input[type="checkbox"] {
+        width: auto;
+        margin-right: 8px;
+      }
+
+      .value-display {
+        font-size: 12px;
+        color: #888;
+        margin-top: 4px;
+      }
+
+      .buttons {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        background: #007acc;
+        color: white;
+        border: none;
+        padding: 12px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background 0.2s;
+        flex: 1;
+        min-width: 100px;
+      }
+
+      button:hover {
+        background: #005a9e;
+      }
+
+      button.secondary {
+        background: #404040;
+      }
+
+      button.secondary:hover {
+        background: #505050;
+      }
+
+      button.small {
+        padding: 6px 10px;
+        min-width: auto;
+        flex: none;
+        font-size: 12px;
+      }
+
+      #kaleidoscope-svg {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        cursor: crosshair;
+      }
+
+      .overlay-lines {
+        pointer-events: none;
+      }
+
+      .overlay-lines line {
+        stroke: #007acc;
+        stroke-width: 1;
+        stroke-dasharray: 5, 5;
+        opacity: 0.6;
+      }
+
+      .overlay-lines circle {
+        fill: none;
+        stroke: #007acc;
+        stroke-width: 1;
+        stroke-dasharray: 3, 3;
+        opacity: 0.4;
+      }
+
+      .angle-display {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(42, 42, 42, 0.9);
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #e0e0e0;
+      }
+
+      .download-info {
+        font-size: 12px;
+        color: #888;
+        margin-top: 8px;
+      }
+
+      /* Layer Management Styles */
+      .layer-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #404040;
+        border-radius: 6px;
+        background: #1a1a1a;
+      }
+
+      .layer-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        border-bottom: 1px solid #404040;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .layer-item:last-child {
+        border-bottom: none;
+      }
+
+      .layer-item:hover {
+        background: #2a2a2a;
+      }
+
+      .layer-item.active {
+        background: #007acc;
+      }
+
+      .layer-item.active:hover {
+        background: #005a9e;
+      }
+
+      .layer-color {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        margin-right: 10px;
+        border: 2px solid #404040;
+        cursor: pointer;
+      }
+
+      .layer-name {
+        flex: 1;
+        font-size: 14px;
+        color: #e0e0e0;
+      }
+
+      .layer-controls {
+        display: flex;
+        gap: 4px;
+      }
+
+      .layer-controls button {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        min-width: auto;
+      }
+
+      .visibility-btn {
+        background: #404040;
+      }
+
+      .visibility-btn:hover {
+        background: #505050;
+      }
+
+      .visibility-btn.visible {
+        background: #007acc;
+      }
+
+      .visibility-btn.visible:hover {
+        background: #005a9e;
+      }
+
+      .layer-add-controls {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .active-layer-info {
+        background: #2a2a2a;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        border: 1px solid #404040;
+      }
+
+      .active-layer-info .layer-name {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .active-layer-info .layer-stats {
+        font-size: 12px;
+        color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="sidebar">
+        <div class="control-group">
+          <h3>Kaleidoscope Settings</h3>
+
+          <div class="control">
+            <label for="repetitions">Number of Repetitions</label>
+            <input type="range" id="repetitions" min="1" max="50" value="6" />
+            <div class="value-display">6 segments (60°)</div>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>Canvas Settings</h3>
+
+          <div class="control">
+            <label for="canvas-width">Canvas Width (mm)</label>
+            <input
+              type="number"
+              id="canvas-width"
+              value="200"
+              min="50"
+              max="1000"
+            />
+          </div>
+
+          <div class="control">
+            <label for="canvas-height">Canvas Height (mm)</label>
+            <input
+              type="number"
+              id="canvas-height"
+              value="200"
+              min="50"
+              max="1000"
+            />
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>Layer Management</h3>
+
+          <div class="active-layer-info" id="active-layer-info">
+            <div class="layer-name">Layer 1</div>
+            <div class="layer-stats">Active • Visible</div>
+          </div>
+
+          <div class="layer-add-controls">
+            <button id="add-layer-btn" class="secondary">Add Layer</button>
+          </div>
+
+          <div class="layer-list" id="layer-list">
+            <!-- Layers will be added here dynamically -->
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>Drawing Tools</h3>
+
+          <div class="control">
+            <label for="pencil-thickness">Pencil Thickness (mm)</label>
+            <input
+              type="range"
+              id="pencil-thickness"
+              min="0.1"
+              max="5.0"
+              value="0.5"
+              step="0.1"
+            />
+            <div class="value-display">0.5mm</div>
+          </div>
+
+          <div class="control">
+            <label for="input-smoothing">Input Smoothing</label>
+            <input
+              type="range"
+              id="input-smoothing"
+              min="0"
+              max="1"
+              value="0.5"
+              step="0.1"
+            />
+            <div class="value-display">0.5</div>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>Display Options</h3>
+
+          <div class="control">
+            <label>
+              <input
+                type="checkbox"
+                id="show-sections"
+                style="width: auto; margin-right: 8px"
+              />
+              Show Section Boundaries
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>Actions</h3>
+          <div class="buttons">
+            <button id="clear-btn">Clear Canvas</button>
+            <button id="download-btn">Download SVG</button>
+          </div>
+          <div class="download-info">
+            SVG files maintain crisp quality at any size and can be opened in
+            vector graphics software
+          </div>
+        </div>
+      </div>
+
+      <div class="canvas-area">
+        <svg id="kaleidoscope-svg" xmlns="http://www.w3.org/2000/svg">
+          <g id="layer-container"></g>
+          <g
+            id="section-overlay"
+            class="overlay-lines"
+            style="display: none"
+          ></g>
+        </svg>
+        <div class="angle-display" id="angle-display">6 segments (60°)</div>
+      </div>
+    </div>
+
+    <script>
+      class KaleidoscopeApp {
+        constructor() {
+          this.svg = document.getElementById("kaleidoscope-svg");
+          this.layerContainer = document.getElementById("layer-container");
+          this.sectionOverlay = document.getElementById("section-overlay");
+          this.layerList = document.getElementById("layer-list");
+          this.activeLayerInfo = document.getElementById("active-layer-info");
+
+          this.isDrawing = false;
+          this.currentPath = null;
+          this.currentKaleidoscopeGroup = null;
+          this.points = [];
+          this.smoothedPoints = [];
+
+          this.layers = [];
+          this.activeLayerId = null;
+          this.layerIdCounter = 1;
+
+          this.settings = {
+            repetitions: 6,
+            canvasWidth: 200,
+            canvasHeight: 200,
+            pencilThickness: 0.5, // in mm
+            inputSmoothing: 0.5,
+            showSections: false,
+          };
+
+          this.initializeEventListeners();
+          this.updateCanvas();
+          this.updateSectionOverlay();
+          this.createDefaultLayer();
+        }
+
+        createDefaultLayer() {
+          this.addLayer("Layer 1", "#ff6b35");
+        }
+
+        addLayer(name = null, color = null) {
+          const layerId = `layer-${this.layerIdCounter++}`;
+          const layerName = name || `Layer ${this.layers.length + 1}`;
+          const layerColor = color || this.getRandomColor();
+
+          const layer = {
+            id: layerId,
+            name: layerName,
+            color: layerColor,
+            visible: true,
+            svgGroup: null,
+            originalGroup: null,
+            kaleidoscopeGroup: null,
+          };
+
+          // Create SVG groups for this layer
+          layer.svgGroup = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "g"
+          );
+          layer.svgGroup.setAttribute("id", layerId);
+          layer.svgGroup.setAttribute("data-layer-color", layerColor);
+
+          layer.originalGroup = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "g"
+          );
+          layer.originalGroup.setAttribute("class", "original-drawing");
+
+          layer.kaleidoscopeGroup = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "g"
+          );
+          layer.kaleidoscopeGroup.setAttribute("class", "kaleidoscope-group");
+
+          layer.svgGroup.appendChild(layer.originalGroup);
+          layer.svgGroup.appendChild(layer.kaleidoscopeGroup);
+          this.layerContainer.appendChild(layer.svgGroup);
+
+          this.layers.push(layer);
+          this.renderLayerList();
+          this.setActiveLayer(layerId);
+
+          return layer;
+        }
+
+        getRandomColor() {
+          const colors = [
+            "#ff6b35",
+            "#f7931e",
+            "#ffd100",
+            "#4caf50",
+            "#2196f3",
+            "#9c27b0",
+            "#e91e63",
+            "#00bcd4",
+          ];
+          return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        setActiveLayer(layerId) {
+          this.activeLayerId = layerId;
+          this.updateActiveLayerInfo();
+          this.renderLayerList();
+        }
+
+        updateActiveLayerInfo() {
+          const activeLayer = this.layers.find(
+            (l) => l.id === this.activeLayerId
+          );
+          if (!activeLayer) return;
+
+          const nameEl = this.activeLayerInfo.querySelector(".layer-name");
+          const statsEl = this.activeLayerInfo.querySelector(".layer-stats");
+
+          nameEl.textContent = activeLayer.name;
+          nameEl.style.color = activeLayer.color;
+
+          const pathCount = activeLayer.originalGroup.children.length;
+          const visibilityText = activeLayer.visible ? "Visible" : "Hidden";
+          statsEl.textContent = `Active • ${visibilityText} • ${pathCount} strokes`;
+        }
+
+        renderLayerList() {
+          this.layerList.innerHTML = "";
+
+          // Render layers in reverse order (top to bottom)
+          for (let i = this.layers.length - 1; i >= 0; i--) {
+            const layer = this.layers[i];
+            const layerElement = this.createLayerElement(layer, i);
+            this.layerList.appendChild(layerElement);
+          }
+        }
+
+        createLayerElement(layer, index) {
+          const layerItem = document.createElement("div");
+          layerItem.className = `layer-item ${
+            layer.id === this.activeLayerId ? "active" : ""
+          }`;
+          layerItem.setAttribute("data-layer-id", layer.id);
+
+          layerItem.innerHTML = `
+                    <div class="layer-color" style="background-color: ${
+                      layer.color
+                    }"></div>
+                    <div class="layer-name">${layer.name}</div>
+                    <div class="layer-controls">
+                        <button class="visibility-btn ${
+                          layer.visible ? "visible" : ""
+                        }" data-action="toggle-visibility" title="Toggle Visibility">
+                            ${layer.visible ? "👁" : "🚫"}
+                        </button>
+                        <button class="small secondary" data-action="move-up" title="Move Up" ${
+                          index === this.layers.length - 1 ? "disabled" : ""
+                        }>↑</button>
+                        <button class="small secondary" data-action="move-down" title="Move Down" ${
+                          index === 0 ? "disabled" : ""
+                        }>↓</button>
+                        <button class="small secondary" data-action="delete" title="Delete Layer" ${
+                          this.layers.length === 1 ? "disabled" : ""
+                        }>🗑</button>
+                    </div>
+                `;
+
+          // Add event listeners
+          layerItem.addEventListener("click", (e) => {
+            if (e.target.closest(".layer-controls")) return;
+            this.setActiveLayer(layer.id);
+          });
+
+          const colorDiv = layerItem.querySelector(".layer-color");
+          colorDiv.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.showColorPicker(layer.id);
+          });
+
+          const controls = layerItem.querySelectorAll("[data-action]");
+          controls.forEach((control) => {
+            control.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const action = e.target.getAttribute("data-action");
+              this.handleLayerAction(action, layer.id, index);
+            });
+          });
+
+          return layerItem;
+        }
+
+        showColorPicker(layerId) {
+          const layer = this.layers.find((l) => l.id === layerId);
+          if (!layer) return;
+
+          const input = document.createElement("input");
+          input.type = "color";
+          input.value = layer.color;
+          input.style.position = "absolute";
+          input.style.opacity = "0";
+          input.style.pointerEvents = "none";
+
+          input.addEventListener("change", (e) => {
+            this.changeLayerColor(layerId, e.target.value);
+            document.body.removeChild(input);
+          });
+
+          document.body.appendChild(input);
+          input.click();
+        }
+
+        changeLayerColor(layerId, newColor) {
+          const layer = this.layers.find((l) => l.id === layerId);
+          if (!layer) return;
+
+          layer.color = newColor;
+          layer.svgGroup.setAttribute("data-layer-color", newColor);
+
+          // Update all paths in this layer
+          const paths = layer.svgGroup.querySelectorAll("path");
+          paths.forEach((path) => {
+            path.setAttribute("stroke", newColor);
+          });
+
+          this.renderLayerList();
+          this.updateActiveLayerInfo();
+        }
+
+        handleLayerAction(action, layerId, index) {
+          switch (action) {
+            case "toggle-visibility":
+              this.toggleLayerVisibility(layerId);
+              break;
+            case "move-up":
+              this.moveLayer(index, index + 1);
+              break;
+            case "move-down":
+              this.moveLayer(index, index - 1);
+              break;
+            case "delete":
+              this.deleteLayer(layerId);
+              break;
+          }
+        }
+
+        toggleLayerVisibility(layerId) {
+          const layer = this.layers.find((l) => l.id === layerId);
+          if (!layer) return;
+
+          layer.visible = !layer.visible;
+          layer.svgGroup.style.display = layer.visible ? "block" : "none";
+
+          this.renderLayerList();
+          this.updateActiveLayerInfo();
+        }
+
+        moveLayer(fromIndex, toIndex) {
+          if (toIndex < 0 || toIndex >= this.layers.length) return;
+
+          const layer = this.layers[fromIndex];
+          this.layers.splice(fromIndex, 1);
+          this.layers.splice(toIndex, 0, layer);
+
+          // Reorder SVG elements
+          this.layerContainer.innerHTML = "";
+          this.layers.forEach((layer) => {
+            this.layerContainer.appendChild(layer.svgGroup);
+          });
+
+          this.renderLayerList();
+        }
+
+        deleteLayer(layerId) {
+          if (this.layers.length <= 1) return;
+
+          const layerIndex = this.layers.findIndex((l) => l.id === layerId);
+          if (layerIndex === -1) return;
+
+          const layer = this.layers[layerIndex];
+          layer.svgGroup.remove();
+          this.layers.splice(layerIndex, 1);
+
+          // Set new active layer
+          if (this.activeLayerId === layerId) {
+            const newActiveIndex = Math.min(layerIndex, this.layers.length - 1);
+            this.setActiveLayer(this.layers[newActiveIndex].id);
+          }
+
+          this.renderLayerList();
+        }
+
+        initializeEventListeners() {
+          // Control listeners
+          document
+            .getElementById("repetitions")
+            .addEventListener("input", (e) => {
+              this.settings.repetitions = parseInt(e.target.value);
+              this.updateRepetitionDisplay();
+              this.updateSectionOverlay();
+            });
+
+          document
+            .getElementById("canvas-width")
+            .addEventListener("input", (e) => {
+              this.settings.canvasWidth = parseFloat(e.target.value);
+              this.updateCanvas();
+              this.updateSectionOverlay();
+            });
+
+          document
+            .getElementById("canvas-height")
+            .addEventListener("input", (e) => {
+              this.settings.canvasHeight = parseFloat(e.target.value);
+              this.updateCanvas();
+              this.updateSectionOverlay();
+            });
+
+          document
+            .getElementById("pencil-thickness")
+            .addEventListener("input", (e) => {
+              this.settings.pencilThickness = parseFloat(e.target.value);
+              document.querySelector(
+                "#pencil-thickness + .value-display"
+              ).textContent = `${e.target.value}mm`;
+            });
+
+          document
+            .getElementById("input-smoothing")
+            .addEventListener("input", (e) => {
+              this.settings.inputSmoothing = parseFloat(e.target.value);
+              document.querySelector(
+                "#input-smoothing + .value-display"
+              ).textContent = e.target.value;
+            });
+
+          document
+            .getElementById("show-sections")
+            .addEventListener("change", (e) => {
+              this.settings.showSections = e.target.checked;
+              this.toggleSectionOverlay();
+            });
+
+          document
+            .getElementById("add-layer-btn")
+            .addEventListener("click", () => {
+              this.addLayer();
+            });
+
+          // Drawing listeners
+          this.svg.addEventListener("mousedown", (e) => this.startDrawing(e));
+          this.svg.addEventListener("mousemove", (e) => this.draw(e));
+          this.svg.addEventListener("mouseup", () => this.stopDrawing());
+          this.svg.addEventListener("mouseleave", () => this.stopDrawing());
+
+          // Touch support
+          this.svg.addEventListener("touchstart", (e) => {
+            e.preventDefault();
+            this.startDrawing(e.touches[0]);
+          });
+          this.svg.addEventListener("touchmove", (e) => {
+            e.preventDefault();
+            this.draw(e.touches[0]);
+          });
+          this.svg.addEventListener("touchend", (e) => {
+            e.preventDefault();
+            this.stopDrawing();
+          });
+
+          // Button listeners
+          document
+            .getElementById("clear-btn")
+            .addEventListener("click", () => this.clearCanvas());
+          document
+            .getElementById("download-btn")
+            .addEventListener("click", () => this.downloadSVG());
+        }
+
+        updateCanvas() {
+          const mmToPx = 3.779528; // 96 DPI conversion
+          const widthPx = this.settings.canvasWidth * mmToPx;
+          const heightPx = this.settings.canvasHeight * mmToPx;
+
+          this.svg.setAttribute("width", widthPx);
+          this.svg.setAttribute("height", heightPx);
+          this.svg.setAttribute("viewBox", `0 0 ${widthPx} ${heightPx}`);
+        }
+
+        updateSectionOverlay() {
+          this.sectionOverlay.innerHTML = "";
+
+          // If only 1 repetition, no boundaries to show
+          if (this.settings.repetitions === 1) return;
+
+          const mmToPx = 3.779528;
+          const widthPx = this.settings.canvasWidth * mmToPx;
+          const heightPx = this.settings.canvasHeight * mmToPx;
+          const centerX = widthPx / 2;
+          const centerY = heightPx / 2;
+          const maxRadius = Math.sqrt(widthPx * widthPx + heightPx * heightPx);
+          const angle = (2 * Math.PI) / this.settings.repetitions;
+
+          // Draw radial lines from center to show section boundaries
+          for (let i = 0; i < this.settings.repetitions; i++) {
+            const lineAngle = i * angle;
+            const x = centerX + maxRadius * Math.cos(lineAngle);
+            const y = centerY + maxRadius * Math.sin(lineAngle);
+
+            const line = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "line"
+            );
+            line.setAttribute("x1", centerX);
+            line.setAttribute("y1", centerY);
+            line.setAttribute("x2", x);
+            line.setAttribute("y2", y);
+
+            this.sectionOverlay.appendChild(line);
+          }
+
+          // Draw concentric circles as reference
+          const numCircles = 3;
+          const maxCircleRadius = Math.min(centerX, centerY) * 0.9;
+          for (let i = 1; i <= numCircles; i++) {
+            const radius = (maxCircleRadius * i) / numCircles;
+            const circle = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "circle"
+            );
+            circle.setAttribute("cx", centerX);
+            circle.setAttribute("cy", centerY);
+            circle.setAttribute("r", radius);
+
+            this.sectionOverlay.appendChild(circle);
+          }
+        }
+
+        toggleSectionOverlay() {
+          this.sectionOverlay.style.display = this.settings.showSections
+            ? "block"
+            : "none";
+        }
+
+        updateRepetitionDisplay() {
+          let displayText;
+          if (this.settings.repetitions === 1) {
+            displayText = "1 segment (no repetition)";
+          } else {
+            const angle = 360 / this.settings.repetitions;
+            displayText = `${
+              this.settings.repetitions
+            } segments (${angle.toFixed(1)}°)`;
+          }
+
+          const displays = document.querySelectorAll(
+            "#repetitions + .value-display, #angle-display"
+          );
+          displays.forEach((display) => {
+            display.textContent = displayText;
+          });
+        }
+
+        getMousePosition(e) {
+          const rect = this.svg.getBoundingClientRect();
+          return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          };
+        }
+
+        startDrawing(e) {
+          const activeLayer = this.layers.find(
+            (l) => l.id === this.activeLayerId
+          );
+          if (!activeLayer || !activeLayer.visible) return;
+
+          this.isDrawing = true;
+          const pos = this.getMousePosition(e);
+          this.points = [pos];
+          this.smoothedPoints = [pos];
+
+          // Convert mm to SVG units for stroke-width
+          const mmToPx = 3.779528;
+          const strokeWidth = this.settings.pencilThickness * mmToPx;
+
+          this.currentPath = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path"
+          );
+          this.currentPath.setAttribute("fill", "none");
+          this.currentPath.setAttribute("stroke", activeLayer.color);
+          this.currentPath.setAttribute("stroke-width", strokeWidth);
+          this.currentPath.setAttribute("stroke-linecap", "round");
+          this.currentPath.setAttribute("stroke-linejoin", "round");
+
+          activeLayer.originalGroup.appendChild(this.currentPath);
+
+          // Create kaleidoscope group for current repetition setting
+          this.currentKaleidoscopeGroup = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "g"
+          );
+          this.currentKaleidoscopeGroup.setAttribute(
+            "data-repetitions",
+            this.settings.repetitions
+          );
+          activeLayer.kaleidoscopeGroup.appendChild(
+            this.currentKaleidoscopeGroup
+          );
+
+          this.createKaleidoscopeSegments(activeLayer);
+        }
+
+        draw(e) {
+          if (!this.isDrawing) return;
+
+          const pos = this.getMousePosition(e);
+          this.points.push(pos);
+
+          if (this.settings.inputSmoothing > 0) {
+            this.smoothedPoints.push(this.smoothPoint(pos));
+          } else {
+            this.smoothedPoints.push(pos);
+          }
+
+          this.updateCurrentPath();
+          this.updateCurrentKaleidoscopeSegments();
+        }
+
+        smoothPoint(currentPoint) {
+          if (this.smoothedPoints.length === 0) return currentPoint;
+
+          const lastSmoothed =
+            this.smoothedPoints[this.smoothedPoints.length - 1];
+          const factor = this.settings.inputSmoothing;
+
+          return {
+            x:
+              lastSmoothed.x + (currentPoint.x - lastSmoothed.x) * (1 - factor),
+            y:
+              lastSmoothed.y + (currentPoint.y - lastSmoothed.y) * (1 - factor),
+          };
+        }
+
+        updateCurrentPath() {
+          if (this.smoothedPoints.length < 2) return;
+
+          let pathData = `M ${this.smoothedPoints[0].x} ${this.smoothedPoints[0].y}`;
+
+          for (let i = 1; i < this.smoothedPoints.length; i++) {
+            const point = this.smoothedPoints[i];
+            pathData += ` L ${point.x} ${point.y}`;
+          }
+
+          this.currentPath.setAttribute("d", pathData);
+        }
+
+        stopDrawing() {
+          this.isDrawing = false;
+          this.currentPath = null;
+          this.currentKaleidoscopeGroup = null;
+          this.points = [];
+          this.smoothedPoints = [];
+          this.updateActiveLayerInfo();
+        }
+
+        createKaleidoscopeSegments(layer) {
+          // Create kaleidoscope paths for current repetition setting
+          // If repetitions = 1, no kaleidoscope segments needed
+          if (this.settings.repetitions === 1) {
+            this.currentKaleidoscopePaths = [];
+            return;
+          }
+
+          const angle = 360 / this.settings.repetitions;
+          const mmToPx = 3.779528;
+          const widthPx = this.settings.canvasWidth * mmToPx;
+          const heightPx = this.settings.canvasHeight * mmToPx;
+          const centerX = widthPx / 2;
+          const centerY = heightPx / 2;
+          const strokeWidth = this.settings.pencilThickness * mmToPx;
+
+          // Create paths for each segment (excluding the original)
+          this.currentKaleidoscopePaths = [];
+          for (let i = 1; i < this.settings.repetitions; i++) {
+            const segmentPath = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "path"
+            );
+            segmentPath.setAttribute("fill", "none");
+            segmentPath.setAttribute("stroke", layer.color);
+            segmentPath.setAttribute("stroke-width", strokeWidth);
+            segmentPath.setAttribute("stroke-linecap", "round");
+            segmentPath.setAttribute("stroke-linejoin", "round");
+            segmentPath.setAttribute(
+              "transform",
+              `rotate(${i * angle} ${centerX} ${centerY})`
+            );
+
+            this.currentKaleidoscopeGroup.appendChild(segmentPath);
+            this.currentKaleidoscopePaths.push(segmentPath);
+          }
+        }
+
+        updateCurrentKaleidoscopeSegments() {
+          // Update only the current drawing session's kaleidoscope segments
+          if (!this.currentKaleidoscopePaths || this.smoothedPoints.length < 2)
+            return;
+
+          let pathData = `M ${this.smoothedPoints[0].x} ${this.smoothedPoints[0].y}`;
+          for (let i = 1; i < this.smoothedPoints.length; i++) {
+            const point = this.smoothedPoints[i];
+            pathData += ` L ${point.x} ${point.y}`;
+          }
+
+          // Apply the same path data to all current kaleidoscope segments
+          this.currentKaleidoscopePaths.forEach((path) => {
+            path.setAttribute("d", pathData);
+          });
+        }
+
+        clearCanvas() {
+          this.layers.forEach((layer) => {
+            layer.originalGroup.innerHTML = "";
+            layer.kaleidoscopeGroup.innerHTML = "";
+          });
+          this.updateActiveLayerInfo();
+        }
+
+        downloadSVG() {
+          // Create a clean copy for download
+          const downloadSVG = this.svg.cloneNode(true);
+
+          // Set proper dimensions in mm
+          downloadSVG.setAttribute("width", `${this.settings.canvasWidth}mm`);
+          downloadSVG.setAttribute("height", `${this.settings.canvasHeight}mm`);
+
+          // Remove the overlay from download
+          const overlay = downloadSVG.querySelector("#section-overlay");
+          if (overlay) overlay.remove();
+
+          // Serialize the SVG
+          const serializer = new XMLSerializer();
+          const svgString = serializer.serializeToString(downloadSVG);
+
+          // Create blob and download
+          const blob = new Blob([svgString], { type: "image/svg+xml" });
+          const url = URL.createObjectURL(blob);
+
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `kaleidoscope-${this.settings.repetitions}x-${this.settings.canvasWidth}x${this.settings.canvasHeight}mm.svg`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          URL.revokeObjectURL(url);
+        }
+      }
+
+      // Initialize the app when DOM is loaded
+      document.addEventListener("DOMContentLoaded", () => {
+        new KaleidoscopeApp();
+      });
+    </script>
+  </body>
+</html>
