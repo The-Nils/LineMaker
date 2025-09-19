@@ -20,6 +20,7 @@ class FieldLines {
         this.numLayers = 1; // Default number of layers
         this.selectedLayerIndex = -1; // Currently selected layer for editing
         this.regenerateTimeout = null; // For debouncing layer regeneration
+        this.interactiveCanvasTimeout = null; // For debouncing InteractiveCanvas updates
 
         this.previewArea = document.querySelector('.preview-area');
         this.interactiveCanvas = new InteractiveCanvas(this.previewArea);
@@ -214,9 +215,6 @@ class FieldLines {
         
         // Visualization toggle
         document.getElementById('showVisualization').addEventListener('change', () => this.draw());
-
-        // Redraw on transform
-        this.previewArea.addEventListener('canvasTransform', () => this.draw());
     }
 
     toggleDrawMode(e) {
@@ -375,11 +373,23 @@ class FieldLines {
         this.updateSvgStack();
         this.updateLayerPanel();
 
-        // Set up InteractiveCanvas with the SVG stack
-        const svgStack = document.getElementById("svgContainer");
-        if (this.interactiveCanvas && svgStack) {
-            this.interactiveCanvas.setContent(svgStack);
+        // Update InteractiveCanvas content
+        this.updateInteractiveCanvas();
+    }
+
+    updateInteractiveCanvas() {
+        // Debounce the InteractiveCanvas updates to prevent zoom jittering
+        if (this.interactiveCanvasTimeout) {
+            clearTimeout(this.interactiveCanvasTimeout);
         }
+        
+        this.interactiveCanvasTimeout = setTimeout(() => {
+            const svgStack = document.getElementById("svgContainer");
+            if (this.interactiveCanvas && svgStack) {
+                // Update content while trying to preserve zoom state
+                this.interactiveCanvas.setContent(svgStack);
+            }
+        }, 50); // 50ms debounce
     }
 
     getLayerColor(index) {
@@ -561,11 +571,8 @@ class FieldLines {
         this.updateSvgStack();
         this.updateLayerPanel();
         
-        // Set up InteractiveCanvas with the SVG stack
-        const svgStack = document.getElementById("svgContainer");
-        if (this.interactiveCanvas && svgStack) {
-            this.interactiveCanvas.setContent(svgStack);
-        }
+        // Update InteractiveCanvas content
+        this.updateInteractiveCanvas();
 
         // Generate the new layer
         this.generateLayerLines(newLayerIndex);
@@ -595,11 +602,8 @@ class FieldLines {
         this.updateSvgStack();
         this.updateLayerPanel();
 
-        // Set up InteractiveCanvas with the SVG stack
-        const svgStack = document.getElementById("svgContainer");
-        if (this.interactiveCanvas && svgStack) {
-            this.interactiveCanvas.setContent(svgStack);
-        }
+        // Update InteractiveCanvas content
+        this.updateInteractiveCanvas();
 
         // If there are still layers and we have a selection, show the editor
         if (this.selectedLayerIndex !== -1) {
@@ -806,7 +810,7 @@ class FieldLines {
             }
             path.setAttribute('d', d);
             path.setAttribute('stroke', 'gray');
-            path.setAttribute('stroke-width', 2 / this.interactiveCanvas.getTransform().scale);
+            path.setAttribute('stroke-width', '2');
             path.setAttribute('fill', 'none');
             this.drawnLinesGroup.appendChild(path);
         }
@@ -820,7 +824,7 @@ class FieldLines {
             }
             path.setAttribute('d', d);
             path.setAttribute('stroke', line.mode === 'attract' ? 'blue' : 'red');
-            path.setAttribute('stroke-width', 2 / this.interactiveCanvas.getTransform().scale);
+            path.setAttribute('stroke-width', '2');
             path.setAttribute('fill', 'none');
             this.drawnLinesGroup.appendChild(path);
         });
@@ -924,7 +928,6 @@ class FieldLines {
         });
 
         // Draw points
-        const currentScale = this.interactiveCanvas.getTransform().scale;
         const showVisualization = document.getElementById('showVisualization').checked;
         
         this.points.forEach((point, i) => {
@@ -937,28 +940,28 @@ class FieldLines {
                 radiusCircle.setAttribute('r', point.radius);
                 radiusCircle.setAttribute('fill', 'none');
                 radiusCircle.setAttribute('stroke', point.mode === 'attract' ? 'blue' : 'red');
-                radiusCircle.setAttribute('stroke-width', 1 / currentScale);
+                radiusCircle.setAttribute('stroke-width', '1');
                 radiusCircle.setAttribute('stroke-dasharray', '5,5');
                 radiusCircle.setAttribute('opacity', '0.3');
                 radiusCircle.setAttribute('pointer-events', 'none'); // Make non-interactive
                 this.fieldPointsGroup.appendChild(radiusCircle);
                 
                 // Draw force field strength grid (debug)
-                this.drawForceFieldGrid(point, currentScale);
+                this.drawForceFieldGrid(point);
             }
             
             // Always draw the center point
             const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             circle.setAttribute('cx', point.x);
             circle.setAttribute('cy', point.y);
-            circle.setAttribute('r', 5 / currentScale ); // Scale radius with zoom
+            circle.setAttribute('r', '5'); // Fixed radius
             circle.setAttribute('fill', point.mode === 'attract' ? 'blue' : 'red');
             circle.dataset.index = i;
             this.fieldPointsGroup.appendChild(circle);
         });
     }
 
-    drawForceFieldGrid(point, currentScale) {
+    drawForceFieldGrid(point) {
         const gridSize = Math.max(20, point.radius / 8); // Larger, adaptive grid spacing
         const startX = point.x - point.radius;
         const startY = point.y - point.radius;
@@ -979,7 +982,7 @@ class FieldLines {
                         const forceCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                         forceCircle.setAttribute('cx', x);
                         forceCircle.setAttribute('cy', y);
-                        forceCircle.setAttribute('r', 3 / currentScale);
+                        forceCircle.setAttribute('r', '3');
                         forceCircle.setAttribute('fill', point.mode === 'attract' ? 'blue' : 'red');
                         forceCircle.setAttribute('opacity', forceRatio * 0.6);
                         forceCircle.setAttribute('pointer-events', 'none');
@@ -1261,11 +1264,8 @@ class FieldLines {
         this.updateSvgStack();
         this.updateLayerPanel();
         
-        // Set up InteractiveCanvas with the SVG stack
-        const svgStack = document.getElementById("svgContainer");
-        if (this.interactiveCanvas && svgStack) {
-            this.interactiveCanvas.setContent(svgStack);
-        }
+        // Update InteractiveCanvas content
+        this.updateInteractiveCanvas();
         
         // Apply points and drawn lines
         this.points = params.points || [];
