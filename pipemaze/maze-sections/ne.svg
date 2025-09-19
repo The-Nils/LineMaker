@@ -4,31 +4,30 @@
   <defs>
     <style>
       .st0 {
-        fill: #ff6b35;
+      fill: #ff6b35;
       }
 
       .st1 {
-        fill: #fff;
+      fill: #fff;
       }
 
       .st2 {
-        fill: none;
-        stroke: #000;
-        stroke-miterlimit: 10;
+      fill: none;
+      stroke: #000;
+      stroke-miterlimit: 10;
       }
 
       .st3 {
-        fill: #333;
+      fill: #333;
       }
     </style>
   </defs>
-  <rect class="st1" width="200" height="200"/>
-  <circle class="st0" cx="100" cy="10" r="5"/>
-  <circle class="st0" cx="190" cy="100" r="5"/>
-  <circle class="st3" cx="100" cy="100" r="2"/>
-  <path class="st2" d="M58.5,200v-58.5"/>
-  <path class="st2" d="M58.5,141.5c0-55.3,27.7-83,83-83"/>
-  <path class="st2" d="M141.5,58.5h58.5"/>
-  <path class="st2" d="M200,141.5h-58.5"/>
-  <path class="st2" d="M141.5,141.5v58.5"/>
+  <rect class="st1" width="200" height="200" />
+  <circle class="st0" cx="100" cy="10" r="5" />
+  <circle class="st0" cx="190" cy="100" r="5" />
+  <circle class="st3" cx="100" cy="100" r="2" />
+  <path class="pipe-drawing-path" d="M141.5,0v58.5" />
+  <path class="pipe-drawing-path" d="M141.5,58.5h58.5" />
+  <path class="pipe-drawing-path" d="M200,141.5H58.5" />
+  <path class="pipe-drawing-path" d="M58.5,0v141.5" />
 </svg>

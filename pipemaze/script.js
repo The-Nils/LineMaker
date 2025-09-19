@@ -71,7 +71,6 @@ class PipeMazeGenerator {
           const svgText = await response.text();
           const pathData = this.extractPathFromSVG(svgText);
           this.pipeSections[key].path = pathData;
-          console.log(`Loaded section ${key}:`, pathData);
         } catch (error) {
           console.error(`Failed to load section ${key}:`, error);
           // Fallback to simple paths if loading fails
@@ -82,14 +81,13 @@ class PipeMazeGenerator {
 
     await Promise.all(loadPromises);
     this.sectionsLoaded = true;
-    console.log("All pipe sections loaded:", this.pipeSections);
   }
 
   extractPathFromSVG(svgText) {
-    // Parse SVG and extract path elements with class "st2" (the drawing paths)
+    // Parse SVG and extract path elements with class "pipe-drawing-path" (the actual drawing paths)
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
-    const pathElements = svgDoc.querySelectorAll("path.st2");
+    const pathElements = svgDoc.querySelectorAll("path.pipe-drawing-path");
 
     let combinedPath = "";
     pathElements.forEach((path) => {
@@ -175,6 +173,9 @@ class PipeMazeGenerator {
       .getElementById("editPipeNS")
       .addEventListener("click", () => this.openPipeEditor("NS"));
     document
+      .getElementById("editPipeNE")
+      .addEventListener("click", () => this.openPipeEditor("NE"));
+    document
       .getElementById("editPipeNSE")
       .addEventListener("click", () => this.openPipeEditor("NSE"));
     document
@@ -259,16 +260,26 @@ class PipeMazeGenerator {
     });
 
     // Other settings
-    ["penDiameter", "feedRate", "penDownZ", "penUpZ", "preventZhop"].forEach(
-      (setting) => {
-        const input = document.getElementById(setting + "Value");
-        if (input) {
-          input.addEventListener("input", (e) => {
-            this.settings[setting] = parseFloat(e.target.value) || 0;
-          });
-        }
+    ["feedRate", "penDownZ", "penUpZ", "preventZhop"].forEach((setting) => {
+      const input = document.getElementById(setting + "Value");
+      if (input) {
+        input.addEventListener("input", (e) => {
+          this.settings[setting] = parseFloat(e.target.value) || 0;
+        });
       }
-    );
+    });
+
+    // Pen diameter with style update
+    const penDiameterInput = document.getElementById("penDiameterValue");
+    if (penDiameterInput) {
+      penDiameterInput.addEventListener("input", (e) => {
+        this.settings.penDiameter = parseFloat(e.target.value) || 0.5;
+        // Update styles when pen diameter changes
+        if (this.maze) {
+          this.updateDynamicStyles();
+        }
+      });
+    }
 
     // Show solution checkbox
     document
@@ -497,20 +508,6 @@ class PipeMazeGenerator {
         }
       }
     }
-
-    console.log("Recursive backtracking complete");
-    console.log(
-      "Start point:",
-      this.startPoint,
-      "connections:",
-      this.maze[this.startPoint.y][this.startPoint.x].connections
-    );
-    console.log(
-      "End point:",
-      this.endPoint,
-      "connections:",
-      this.maze[this.endPoint.y][this.endPoint.x].connections
-    );
   }
 
   recursiveBacktrack(x, y) {
@@ -596,7 +593,6 @@ class PipeMazeGenerator {
     );
 
     if (endPointUnvisited) {
-      console.log("Prioritizing end point for next walk:", endPointUnvisited);
       return endPointUnvisited;
     }
 
@@ -636,12 +632,10 @@ class PipeMazeGenerator {
       // Move to random neighbor
       current = this.getRandomNeighbor(current);
       if (!current) {
-        console.log("Random walk got stuck, breaking");
         break;
       }
     }
 
-    console.log("Loop-erased random walk result:", path.length, "cells");
     return path;
   }
 
@@ -671,8 +665,6 @@ class PipeMazeGenerator {
   }
 
   addPathToMaze(path) {
-    console.log("Adding path to maze:", path.length, "cells");
-
     // Add all cells in path to maze
     for (let i = 0; i < path.length; i++) {
       const cell = path[i];
@@ -683,30 +675,9 @@ class PipeMazeGenerator {
 
     // Connect adjacent cells in path
     for (let i = 0; i < path.length - 1; i++) {
-      console.log("Connecting", path[i], "to", path[i + 1]);
       this.connectCells(path[i], path[i + 1]);
     }
-
     // Debug: Check connections of start and end points if they're in this path
-    const hasStart = path.some(
-      (p) => p.x === this.startPoint.x && p.y === this.startPoint.y
-    );
-    const hasEnd = path.some(
-      (p) => p.x === this.endPoint.x && p.y === this.endPoint.y
-    );
-
-    if (hasStart) {
-      console.log(
-        "Start point connections after path:",
-        this.maze[this.startPoint.y][this.startPoint.x].connections
-      );
-    }
-    if (hasEnd) {
-      console.log(
-        "End point connections after path:",
-        this.maze[this.endPoint.y][this.endPoint.x].connections
-      );
-    }
   }
 
   getNeighborInDirection(x, y, direction) {
@@ -931,6 +902,9 @@ class PipeMazeGenerator {
     // Clear existing maze
     this.mazeContainer.innerHTML = "";
 
+    // Update dynamic styles for layers
+    this.updateDynamicStyles();
+
     const size = this.settings.gridSize;
     const cellSize = (this.settings.canvasWidth * this.pixelsPerMm) / size;
 
@@ -977,41 +951,83 @@ class PipeMazeGenerator {
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", pipeSection.path);
-    path.setAttribute("class", "maze-pipe");
+
+    // Apply layer-specific class for styling
+    let pathClass = "maze-pipe";
+    if (this.currentLayerId) {
+      pathClass += ` maze-pipe-${this.currentLayerId}`;
+    }
+    path.setAttribute("class", pathClass);
+
     path.setAttribute(
       "transform",
       `scale(${scale}) rotate(${rotation} 100 100)`
     );
 
-    // Apply layer color
-    if (this.currentLayerId) {
-      const layer = this.layers.find((l) => l.id === this.currentLayerId);
-      if (layer) {
-        path.setAttribute("stroke", layer.color);
-      }
-    }
-
     group.appendChild(path);
     this.mazeContainer.appendChild(group);
+  }
+
+  updateDynamicStyles() {
+    // Remove existing dynamic style element
+    const existingStyle = document.getElementById("maze-dynamic-styles");
+    if (existingStyle) {
+      existingStyle.remove();
+    }
+
+    // Create new style element
+    const styleElement = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "style"
+    );
+    styleElement.setAttribute("id", "maze-dynamic-styles");
+
+    let cssRules = "";
+
+    // Calculate the actual stroke width that accounts for scaling
+    const cellSize =
+      (this.settings.canvasWidth * this.pixelsPerMm) / this.settings.gridSize;
+    const scale = cellSize / 200;
+    const actualStrokeWidth =
+      (this.settings.penDiameter * this.pixelsPerMm) / scale;
+
+    // Create styles for each layer
+    this.layers.forEach((layer) => {
+      cssRules += `
+        .maze-pipe-${layer.id} {
+          stroke: ${layer.color};
+          fill: none;
+          stroke-width: ${actualStrokeWidth}px;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+      `;
+    });
+
+    styleElement.textContent = cssRules;
+
+    // Add style to SVG defs (or create defs if it doesn't exist)
+    let defs = this.svg.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      this.svg.insertBefore(defs, this.svg.firstChild);
+    }
+    defs.appendChild(styleElement);
   }
 
   calculatePipeRotation(connections, type) {
     // Calculate rotation needed to align pipe section with connections
     const sortedConnections = connections.sort().join("");
 
-    console.log(
-      `Calculating rotation for type ${type}, connections: ${sortedConnections}`
-    );
-
     const rotationMap = {
       N: { N: 0, E: 90, S: 180, W: 270 },
       NS: { NS: 0, EW: 90 },
-      NE: { EN: 270, ES: 0, SW: 90, NW: 180 },
+      NE: { EN: 0, ES: 90, SW: 180, NW: 270 },
       NSE: {
         ENS: 0,
         ESW: 90,
         NSW: 180,
-        ENW: 270
+        ENW: 270,
       },
       NSEW: { ENSW: 0 },
     };
@@ -1019,7 +1035,6 @@ class PipeMazeGenerator {
     const typeMap = rotationMap[type];
     const rotation = typeMap ? typeMap[sortedConnections] || 0 : 0;
 
-    console.log(`Rotation for ${type} with ${sortedConnections}: ${rotation}°`);
     return rotation;
   }
 
@@ -1049,11 +1064,8 @@ class PipeMazeGenerator {
 
   findSolutionPath() {
     if (!this.startPoint || !this.endPoint) {
-      console.log("Start or end point not defined");
       return [];
     }
-
-    console.log("Finding path from", this.startPoint, "to", this.endPoint);
 
     // Use BFS to find path from start to end
     const size = this.settings.gridSize;
@@ -1072,23 +1084,14 @@ class PipeMazeGenerator {
 
       // Found end point
       if (current.x === this.endPoint.x && current.y === this.endPoint.y) {
-        console.log("Path found! Reconstructing...");
         return this.reconstructPath(parent);
       }
 
       // Check all connected neighbors
       const cell = this.maze[current.y][current.x];
       if (!cell || !cell.connections) {
-        console.log("Cell at", current, "has no connections");
         continue;
       }
-
-      console.log(
-        "Current cell",
-        current,
-        "has connections:",
-        cell.connections
-      );
 
       cell.connections.forEach((direction) => {
         const neighbor = this.getNeighborInDirection(
@@ -1104,7 +1107,6 @@ class PipeMazeGenerator {
       });
     }
 
-    console.log("No path found from start to end");
     return []; // No path found
   }
 
@@ -1122,10 +1124,8 @@ class PipeMazeGenerator {
 
   renderSolution(cellSize) {
     const solutionPath = this.findSolutionPath();
-    console.log("Solution path found:", solutionPath.length, "cells");
 
     if (solutionPath.length < 2) {
-      console.log("No solution path found or path too short");
       return;
     }
 
@@ -1148,8 +1148,6 @@ class PipeMazeGenerator {
       }
     }
 
-    console.log("Solution path data:", pathData);
-
     pathElement.setAttribute("d", pathData);
     pathElement.setAttribute("stroke", "#ff0000");
     pathElement.setAttribute("stroke-width", "4"); // Made thicker for visibility
@@ -1159,7 +1157,6 @@ class PipeMazeGenerator {
     pathElement.setAttribute("stroke-linejoin", "round");
 
     this.mazeContainer.appendChild(pathElement);
-    console.log("Solution path element added to container");
   }
 
   renderRawPath(cellSize) {
@@ -1303,6 +1300,7 @@ class PipeMazeGenerator {
     const names = {
       N: "End Cap (N)",
       NS: "Straight Pipe (NS)",
+      NE: "90° Corner (NE)",
       NSE: "T-Shape (NSE)",
       NSEW: "Cross (NSEW)",
     };
@@ -1543,6 +1541,10 @@ class PipeMazeGenerator {
       this.currentLayerId = layerId;
       this.showLayerEditor(layer);
       this.updateLayersList();
+      // Update styles when switching layers
+      if (this.maze) {
+        this.updateDynamicStyles();
+      }
     }
   }
 
@@ -2161,7 +2163,25 @@ M84 ; Disable motors
   generateTemplateSVG(connections) {
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-    <rect width="100%" height="100%" fill="white"/>`;
+    <defs>
+      <style>
+        .template-connection-point {
+          fill: #ff6b35;
+        }
+        .template-background {
+          fill: #fff;
+        }
+        .pipe-drawing-path {
+          fill: none;
+          stroke: #000;
+          stroke-miterlimit: 10;
+        }
+        .template-center-point {
+          fill: #333;
+        }
+      </style>
+    </defs>
+    <rect class="template-background" width="100%" height="100%"/>`;
 
     // Add connection points/poles
     const polePositions = {
@@ -2175,13 +2195,13 @@ M84 ; Disable motors
       const pole = polePositions[dir];
       if (pole) {
         svg += `
-    <circle cx="${pole.cx}" cy="${pole.cy}" r="5" fill="#ff6b35"/>`;
+    <circle class="template-connection-point" cx="${pole.cx}" cy="${pole.cy}" r="5"/>`;
       }
     });
 
     // Add center reference point
     svg += `
-    <circle cx="100" cy="100" r="2" fill="#333"/>
+    <circle class="template-center-point" cx="100" cy="100" r="2"/>
 </svg>`;
 
     return svg;

@@ -3,27 +3,27 @@
   <!-- Generator: Adobe Illustrator 29.0.1, SVG Export Plug-In . SVG Version: 2.1.0 Build 192)  -->
   <defs>
     <style>
-      .st0 {
+      .template-connection-point {
         fill: #ff6b35;
       }
 
-      .st1 {
+      .template-background {
         fill: #fff;
       }
 
-      .st2 {
+      .pipe-drawing-path {
         fill: none;
         stroke: #000;
         stroke-miterlimit: 10;
       }
 
-      .st3 {
+      .template-center-point {
         fill: #333;
       }
     </style>
   </defs>
-  <rect class="st1" width="200" height="200"/>
-  <circle class="st0" cx="100" cy="10" r="5"/>
-  <circle class="st3" cx="100" cy="100" r="2"/>
-  <path class="st2" d="M141.5,0v112.5c0,5.5-4.5,10-10,10h-63c-5.5,0-10-4.5-10-10V0"/>
+  <rect class="template-background" width="200" height="200"/>
+  <circle class="template-connection-point" cx="100" cy="10" r="5"/>
+  <circle class="template-center-point" cx="100" cy="100" r="2"/>
+  <path class="pipe-drawing-path" d="M141.5,0v112.5c0,5.5-4.5,10-10,10h-63c-5.5,0-10-4.5-10-10V0"/>
 </svg>
