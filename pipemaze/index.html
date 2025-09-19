@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipe Maze - LineMaker</title>
+    <link rel="stylesheet" href="../tool-styles.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="main-layout">
+            <div class="sidebar">
+                <div class="header-section">
+                    <div class="header-row">
+                        <a href="../index.html" class="back-button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5"/>
+                                <path d="M12 19l-7-7 7-7"/>
+                            </svg>
+                        </a>
+                        <h2 class="tool-title">Pipe Maze</h2>
+                    </div>
+                    <div class="button-row">
+                        <button class="action-btn" id="clearMazeBtn">Clear Maze</button>
+                    </div>
+                    <div class="button-row">
+                        <button class="action-btn" id="saveConfigBtn">Save Config</button>
+                        <button class="action-btn" id="loadConfigBtn">Load Config</button>
+                    </div>
+                    
+                    <div class="download-section">
+                        <div class="download-dropdown">
+                            <button class="download-btn primary compact" id="svgDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                SVG
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="svgDropdown">
+                                <a href="#" id="downloadSvgBtn">Combined SVG</a>
+                                <a href="#" id="downloadIndividualSvgBtn">Individual Layers SVG</a>
+                            </div>
+                        </div>
+                        
+                        <div class="download-dropdown">
+                            <button class="download-btn secondary compact" id="gcodeDownloadBtn">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7,10 12,15 17,10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                G-code
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6,9 12,15 18,9"/>
+                                </svg>
+                            </button>
+                            <div class="dropdown-content" id="gcodeDropdown">
+                                <a href="#" id="downloadGcodeBtn">Combined G-code</a>
+                                <a href="#" id="downloadIndividualGcodeBtn">Individual Layers G-code</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="scrollable-controls">
+
+                    <div class="control-group">
+                        <h3>Maze Generation</h3>
+                        <div class="input-row">
+                            <label>Seed:</label>
+                            <input type="number" id="seedValue" min="0" max="999999" step="1" value="12345">
+                            <button class="action-btn compact" id="randomSeedBtn">Random</button>
+                        </div>
+                        <div class="input-row">
+                            <label>Grid Size:</label>
+                            <input type="number" id="gridSizeValue" min="5" max="50" step="1" value="15">
+                            <span class="unit-label">cells</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Complexity:</label>
+                            <input type="range" id="complexitySlider" min="0" max="1" step="0.1" value="0.7">
+                            <input type="number" id="complexityValue" min="0" max="1" step="0.1" value="0.7">
+                        </div>
+                        <div class="input-row">
+                            <label>
+                                <input type="checkbox" id="showSolutionCheckbox" style="width: auto; margin-right: 8px;">
+                                Show Solution
+                            </label>
+                        </div>
+                        <div class="input-row">
+                            <label>
+                                <input type="checkbox" id="showRawPathCheckbox" style="width: auto; margin-right: 8px;">
+                                Show Raw Path
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Start & End Points</h3>
+                        <div class="input-row">
+                            <label>
+                                <input type="radio" id="placementModeRandom" name="placementMode" value="random" checked style="width: auto; margin-right: 8px;">
+                                Random Placement
+                            </label>
+                        </div>
+                        <div class="input-row">
+                            <label>
+                                <input type="radio" id="placementModeManual" name="placementMode" value="manual" style="width: auto; margin-right: 8px;">
+                                Manual Placement
+                            </label>
+                        </div>
+                        <div class="manual-placement" id="manualPlacementControls" style="display: none;">
+                            <div class="input-row">
+                                <label>Start X:</label>
+                                <input type="number" id="startXValue" min="0" max="14" step="1" value="0">
+                            </div>
+                            <div class="input-row">
+                                <label>Start Y:</label>
+                                <input type="number" id="startYValue" min="0" max="14" step="1" value="0">
+                            </div>
+                            <div class="input-row">
+                                <label>End X:</label>
+                                <input type="number" id="endXValue" min="0" max="14" step="1" value="14">
+                            </div>
+                            <div class="input-row">
+                                <label>End Y:</label>
+                                <input type="number" id="endYValue" min="0" max="14" step="1" value="14">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Canvas Size</h3>
+                        <div class="input-row">
+                            <label>Width:</label>
+                            <input type="number" id="canvasWidthValue" min="10" max="2000" step="1" value="200">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Height:</label>
+                            <input type="number" id="canvasHeightValue" min="10" max="2000" step="1" value="200">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Pen Settings</h3>
+                        <div class="input-row">
+                            <label>Pen Diameter:</label>
+                            <input type="number" id="penDiameterValue" min="0.1" max="10" step="0.1" value="0.5">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>G-code Settings</h3>
+                        <div class="input-row">
+                            <label>Feed Rate:</label>
+                            <input type="number" id="feedRateValue" min="50" max="10000" step="10" value="2500">
+                            <span class="unit-label">mm/min</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Pen Down Z:</label>
+                            <input type="number" id="penDownZValue" min="-20" max="5" step="0.01" value="-1">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Pen Up Z:</label>
+                            <input type="number" id="penUpZValue" min="0" max="50" step="0.01" value="2">
+                            <span class="unit-label">mm</span>
+                        </div>
+                        <div class="input-row">
+                            <label>Skip Z-hop for moves &lt;</label>
+                            <input type="number" id="preventZhopValue" min="0" max="50" step="0.1" value="2">
+                            <span class="unit-label">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Pipe Sections</h3>
+                        <div class="pipe-sections">
+                            <div class="pipe-section-item">
+                                <span>End Cap (N)</span>
+                                <button class="action-btn compact" id="editPipeN">Edit</button>
+                            </div>
+                            <div class="pipe-section-item">
+                                <span>Straight (NS)</span>
+                                <button class="action-btn compact" id="editPipeNS">Edit</button>
+                            </div>
+                            <div class="pipe-section-item">
+                                <span>T-Shape (NSE)</span>
+                                <button class="action-btn compact" id="editPipeNSE">Edit</button>
+                            </div>
+                            <div class="pipe-section-item">
+                                <span>Cross (NSEW)</span>
+                                <button class="action-btn compact" id="editPipeNSEW">Edit</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>Layers</h3>
+                        <div class="input-row">
+                            <button class="action-btn" id="addLayerBtn">Add Layer</button>
+                        </div>
+                        
+                        <div class="layer-panel">
+                            <div id="layerList" class="layer-list">
+                                <!-- Layer items will be generated here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="layerEditor" style="display: none;">
+                        <h3>Layer Editor</h3>
+                        <div class="layer-editor-header">
+                            <div class="layer-color-indicator" id="currentLayerColor"></div>
+                            <span id="currentLayerName">Layer 1</span>
+                        </div>
+                        
+                        <div class="input-row">
+                            <label>Color:</label>
+                            <input type="color" id="layerColorValue" value="#ff6b35">
+                        </div>
+                        <div class="input-row">
+                            <button class="action-btn" id="removeCurrentLayerBtn" style="background: #e74c3c; color: white;">Remove This Layer</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="preview-area">
+                <div class="canvas-controls" style="position: absolute; top: 10px; right: 10px; z-index: 100; display: flex; gap: 5px;">
+                    <button id="fitToContentBtn" class="canvas-control-btn" title="Fit to Content">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                    </button>
+                    <button id="resetViewBtn" class="canvas-control-btn" title="Reset View">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 4v6h6M23 20v-6h-6"/>
+                            <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="svg-stack" id="svgContainer">
+                    <svg id="pipeMazeSvg" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet" style="position: absolute; top: 0; left: 0; pointer-events: auto;">
+                        <rect width="100%" height="100%" fill="white"/>
+                        <g id="maze-container"></g>
+                    </svg>
+                </div>
+                <div class="maze-info" id="mazeInfo">Adjust parameters to generate different mazes</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pipe Section Editor Modal -->
+    <div id="pipeSectionModal" class="modal" style="display: none;">
+        <div class="modal-content pipe-editor">
+            <span class="close-button">&times;</span>
+            <h3 id="pipeEditorTitle">Edit Pipe Section</h3>
+            
+            <div class="pipe-editor-container">
+                <div class="pipe-editor-canvas">
+                    <svg id="pipeEditorSvg" viewBox="0 0 200 200" width="300" height="300">
+                        <defs>
+                            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e0e0e0" stroke-width="1"/>
+                            </pattern>
+                        </defs>
+                        <rect width="100%" height="100%" fill="white"/>
+                        <rect width="100%" height="100%" fill="url(#grid)"/>
+                        
+                        <!-- Connection points -->
+                        <circle cx="100" cy="10" r="5" fill="#ff0000" class="connection-point" data-direction="N" opacity="0.3"/>
+                        <circle cx="190" cy="100" r="5" fill="#ff0000" class="connection-point" data-direction="E" opacity="0.3"/>
+                        <circle cx="100" cy="190" r="5" fill="#ff0000" class="connection-point" data-direction="S" opacity="0.3"/>
+                        <circle cx="10" cy="100" r="5" fill="#ff0000" class="connection-point" data-direction="W" opacity="0.3"/>
+                        
+                        <!-- Drawing area -->
+                        <g id="pipeShape"></g>
+                    </svg>
+                </div>
+                
+                <div class="pipe-editor-controls">
+                    <div class="control-section">
+                        <h4>Connection Points</h4>
+                        <div class="connection-toggles">
+                            <label><input type="checkbox" id="connN"> North</label>
+                            <label><input type="checkbox" id="connE"> East</label>
+                            <label><input type="checkbox" id="connS"> South</label>
+                            <label><input type="checkbox" id="connW"> West</label>
+                        </div>
+                    </div>
+                    
+                    <div class="control-section">
+                        <h4>Drawing Tools</h4>
+                        <button class="action-btn compact" id="drawLineBtn">Line</button>
+                        <button class="action-btn compact" id="drawCurveBtn">Curve</button>
+                        <button class="action-btn compact" id="clearShapeBtn">Clear</button>
+                    </div>
+                    
+                    <div class="control-section">
+                        <h4>Template & Import</h4>
+                        <button class="action-btn compact" id="downloadTemplateBtn">Download Template</button>
+                        <input type="file" id="importSvgInput" accept=".svg" style="display: none;">
+                        <button class="action-btn compact" id="importSvgBtn">Import SVG</button>
+                    </div>
+                    
+                    <div class="control-section">
+                        <button class="action-btn" id="savePipeBtn">Save Shape</button>
+                        <button class="action-btn" id="resetPipeBtn">Reset to Default</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../configManager.js"></script>
+    <script src="../interactiveCanvas.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -144,6 +144,35 @@
                 </div>
                 <a href="kaleidoscope/index.html" class="tool-link">Open Kaleidoscope</a>
               </div>
+
+              <div class="tool-card">
+                <div class="tool-icon">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <!-- Grid -->
+                        <path d="M3 3 L21 3 M3 9 L21 9 M3 15 L21 15 M3 21 L21 21" opacity="0.3"/>
+                        <path d="M3 3 L3 21 M9 3 L9 21 M15 3 L15 21 M21 3 L21 21" opacity="0.3"/>
+                        <!-- Pipe connections -->
+                        <path d="M6 6 L6 9 L9 9" stroke-width="3"/>
+                        <path d="M12 6 L12 18" stroke-width="3"/>
+                        <path d="M15 9 L18 9 L18 12" stroke-width="3"/>
+                        <path d="M9 12 L15 12" stroke-width="3"/>
+                        <path d="M6 15 L9 15 L9 18 L12 18" stroke-width="3"/>
+                        <path d="M15 15 L18 15" stroke-width="3"/>
+                        <!-- Start and end markers -->
+                        <circle cx="6" cy="6" r="2" fill="#28a745"/>
+                        <circle cx="18" cy="15" r="2" fill="#dc3545"/>
+                    </svg>
+                </div>
+                <h2>Pipe Maze</h2>
+                <p>Generate complex pipe mazes with customizable sections, seed control, and custom pipe shapes using an integrated vector editor.</p>
+                <div class="tool-features">
+                    <span class="feature">Maze Generation</span>
+                    <span class="feature">Custom Pipes</span>
+                    <span class="feature">Vector Editor</span>
+                    <span class="feature">SVG Export</span>
+                </div>
+                <a href="pipemaze/index.html" class="tool-link">Open Pipe Maze</a>
+              </div>
             </div>
           </div>
 
@@ -249,6 +278,7 @@
             moiremaker: "HatchMoiréMaker",
             fieldlines: "FieldLines",
             kaleidoscope: "Kaleidoscope",
+            pipemaze: "Pipe Maze",
           };
           return toolNames[toolId] || toolId;
         }

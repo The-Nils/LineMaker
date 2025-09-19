@@ -1,0 +1,13 @@
+{
+  "name": "pen-plotter-line",
+  "version": "1.0.0",
+  "description": "LineMaker - Pen Plotter Tools Collection",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["pen-plotter", "svg", "gcode", "maze", "kaleidoscope", "fieldlines"],
+  "author": "",
+  "license": "MIT"
+}

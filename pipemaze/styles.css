@@ -1,0 +1,275 @@
+/* Pipe Maze Specific Styles */
+
+/* Override base svg-stack styling */
+.svg-stack {
+    margin: 0;
+    justify-content: flex-start;
+    align-items: flex-start;
+}
+
+#pipeMazeSvg {
+    background: white;
+    border-radius: 8px;
+    touch-action: none;
+    border: 1px solid #dee2e6;
+    display: block;
+}
+
+.maze-info {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #333;
+    border: 1px solid #dee2e6;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    z-index: 50;
+}
+
+.pipe-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pipe-section-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.pipe-section-item span {
+    font-weight: 500;
+    color: #495057;
+}
+
+.manual-placement {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #dee2e6;
+}
+
+.maze-info {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #666;
+    border: 1px solid #ddd;
+}
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    z-index: 1001;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: auto;
+    padding: 20px;
+    border: 1px solid #888;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
+    max-height: 90vh;
+    overflow: auto;
+}
+
+.close-button {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    line-height: 20px;
+    cursor: pointer;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: black;
+    text-decoration: none;
+}
+
+/* Pipe Section Editor Modal */
+.modal.pipe-editor .modal-content {
+    max-width: 800px;
+    width: 90vw;
+}
+
+.pipe-editor-container {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.pipe-editor-canvas {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.pipe-editor-controls {
+    flex: 0 0 250px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.control-section {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.control-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.connection-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.connection-toggles label {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.connection-toggles input[type="checkbox"] {
+    margin-right: 8px;
+    width: auto;
+}
+
+.connection-point {
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+}
+
+.connection-point.active {
+    opacity: 1 !important;
+    fill: #00ff00 !important;
+}
+
+.connection-point:hover {
+    opacity: 0.7 !important;
+}
+
+/* Drawing tools */
+#pipeEditorSvg {
+    border: 2px solid #dee2e6;
+    border-radius: 4px;
+    background: white;
+    cursor: crosshair;
+}
+
+#pipeEditorSvg.drawing-line {
+    cursor: crosshair;
+}
+
+#pipeEditorSvg.drawing-curve {
+    cursor: crosshair;
+}
+
+.pipe-shape-path {
+    fill: none;
+    stroke: #007bff;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Maze grid visualization */
+.maze-cell {
+    fill: none;
+    stroke: #e0e0e0;
+    stroke-width: 1;
+}
+
+.maze-pipe {
+    fill: none;
+    stroke: #333;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.maze-start {
+    fill: #28a745;
+}
+
+.maze-end {
+    fill: #dc3545;
+}
+
+.maze-path {
+    stroke: #007bff;
+    stroke-width: 3;
+    fill: none;
+    stroke-linecap: round;
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+    .pipe-editor-container {
+        flex-direction: column;
+    }
+    
+    .pipe-editor-controls {
+        flex: none;
+    }
+    
+    .pipe-editor-canvas svg {
+        width: 250px;
+        height: 250px;
+    }
+}
+
+/* Compact button styling */
+.action-btn.compact {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: auto;
+}
+
+/* Grid size input updates */
+#gridSizeValue {
+    width: 60px;
+}
+
+/* Seed controls */
+#seedValue {
+    flex: 1;
+    margin-right: 8px;
+}
+
+#randomSeedBtn {
+    flex: 0 0 auto;
+}
