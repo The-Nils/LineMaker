@@ -3,7 +3,7 @@ class PipeMazeGenerator {
     this.settings = {
       seed: 12345,
       gridSize: 15,
-      complexity: 0.7,
+      complexity: 70,
       placementMode: "random",
       startX: 0,
       startY: 0,
@@ -510,22 +510,25 @@ class PipeMazeGenerator {
     }
   }
 
-  recursiveBacktrack(x, y) {
+  recursiveBacktrack(x, y, previousDirection = null) {
     // Mark current cell as visited
     this.maze[y][x].visited = true;
 
-    // Get all unvisited neighbors in random order
+    // Get all unvisited neighbors
     const neighbors = this.getUnvisitedNeighbors(x, y);
-    this.shuffleArray(neighbors);
+    
+    // Apply complexity-based direction selection
+    const orderedNeighbors = this.orderNeighborsByComplexity(neighbors, previousDirection);
 
-    // Visit each unvisited neighbor
-    for (const neighbor of neighbors) {
+    // Visit each unvisited neighbor in complexity-ordered sequence
+    for (const neighborInfo of orderedNeighbors) {
+      const neighbor = neighborInfo.neighbor;
       if (!this.maze[neighbor.y][neighbor.x].visited) {
         // Connect current cell to neighbor
         this.connectCells({ x, y }, neighbor);
 
-        // Recursively visit the neighbor
-        this.recursiveBacktrack(neighbor.x, neighbor.y);
+        // Recursively visit the neighbor, passing the direction we're going
+        this.recursiveBacktrack(neighbor.x, neighbor.y, neighborInfo.direction);
       }
     }
   }
@@ -534,10 +537,10 @@ class PipeMazeGenerator {
     const size = this.settings.gridSize;
     const neighbors = [];
     const directions = [
-      { dx: 0, dy: -1 }, // North
-      { dx: 1, dy: 0 }, // East
-      { dx: 0, dy: 1 }, // South
-      { dx: -1, dy: 0 }, // West
+      { dx: 0, dy: -1, name: "N" }, // North
+      { dx: 1, dy: 0, name: "E" }, // East
+      { dx: 0, dy: 1, name: "S" }, // South
+      { dx: -1, dy: 0, name: "W" }, // West
     ];
 
     directions.forEach((dir) => {
@@ -546,12 +549,56 @@ class PipeMazeGenerator {
 
       if (newX >= 0 && newX < size && newY >= 0 && newY < size) {
         if (!this.maze[newY][newX].visited) {
-          neighbors.push({ x: newX, y: newY });
+          neighbors.push({ 
+            neighbor: { x: newX, y: newY },
+            direction: dir.name
+          });
         }
       }
     });
 
     return neighbors;
+  }
+
+  orderNeighborsByComplexity(neighbors, previousDirection) {
+    const complexity = (this.settings.complexity - 1) / 99; // Convert 1-100 to 0-1 range
+    
+    if (neighbors.length === 0) return [];
+    
+    // Calculate preference weights for each direction using continuous complexity value
+    const weightedNeighbors = neighbors.map(neighborInfo => {
+      let weight = this.seededRandom();
+      
+      if (previousDirection) {
+        const isSameDirection = neighborInfo.direction === previousDirection;
+        const isOppositeDirection = this.getOppositeDirection(previousDirection) === neighborInfo.direction;
+        
+        // Directly scale preferences based on complexity value (0.0 to 1.0)
+        // Low complexity (0.0): heavily favor straight paths
+        // High complexity (1.0): heavily favor turns
+        
+        if (isSameDirection) {
+          // Continuing straight - weight decreases as complexity increases
+          weight += (1 - complexity) * 3;
+        } else if (!isOppositeDirection) {
+          // Turning - weight increases as complexity increases  
+          weight += complexity * 3;
+        } else {
+          // Going backwards - always penalize
+          weight -= 2;
+        }
+      }
+      
+      return { ...neighborInfo, weight };
+    });
+    
+    // Sort by weight with small random factor
+    weightedNeighbors.sort((a, b) => {
+      const randomFactor = (this.seededRandom() - 0.5) * 0.2;
+      return (b.weight - a.weight) + randomFactor;
+    });
+    
+    return weightedNeighbors;
   }
 
   shuffleArray(array) {
@@ -1617,7 +1664,7 @@ class PipeMazeGenerator {
     this.settings.gridSize =
       parseInt(document.getElementById("gridSizeValue").value) || 15;
     this.settings.complexity =
-      parseFloat(document.getElementById("complexityValue").value) || 0.7;
+      parseFloat(document.getElementById("complexityValue").value) || 70;
     this.settings.placementMode =
       document.querySelector('input[name="placementMode"]:checked').value ||
       "random";
@@ -1864,42 +1911,239 @@ class PipeMazeGenerator {
   generateLayerGCodePaths(_layer) {
     if (!this.maze) return "";
 
-    let gcode = "";
+    // Collect all line segments using hatchmaker approach
+    const gcodeLines = [];
     const size = this.settings.gridSize;
-    const cellSize = this.settings.canvasWidth / size;
+    const cellSize = (this.settings.canvasWidth * this.pixelsPerMm) / size;
 
+    // Process each cell to extract line segments
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const cell = this.maze[y][x];
         if (cell.visited && cell.type) {
           const pipeSection = this.pipeSections[cell.type];
           if (pipeSection) {
-            gcode += this.convertPipeSectionToGCode(
-              pipeSection,
-              x,
-              y,
-              cell,
-              cellSize
-            );
+            const cellLines = this.extractLinesFromCell(pipeSection, x, y, cell, cellSize);
+            gcodeLines.push(...cellLines);
           }
         }
       }
     }
 
+    // Convert line segments to G-code using hatchmaker approach
+    return this.linesToGCode(gcodeLines);
+  }
+
+  extractLinesFromCell(pipeSection, gridX, gridY, cell, cellSize) {
+    const lines = [];
+    
+    // Use the EXACT same approach as SVG generation
+    const rotation = this.calculatePipeRotation(cell.connections, cell.type);
+    const scale = cellSize / this.pixelsPerMm / 200;  // Convert to mm scale directly
+    const translateX = gridX * cellSize / this.pixelsPerMm;  // Convert to mm
+    const translateY = gridY * cellSize / this.pixelsPerMm;  // Convert to mm
+
+    // Debug logging for NE segments
+    if (cell.type === "NE") {
+      console.log(`NE segment at ${gridX},${gridY}: connections=${cell.connections.join(",")}, rotation=${rotation}`);
+      console.log(`Scale: ${scale}, translateX: ${translateX}, translateY: ${translateY}`);
+    }
+
+    // Parse SVG path into line segments
+    const paths = this.parseSVGPath(pipeSection.path);
+    
+    if (cell.type === "NE") {
+      console.log(`NE original paths:`, paths);
+    }
+    
+    paths.forEach(path => {
+      if (path.length >= 2) {
+        // Apply the SAME transform as SVG: translate(x,y) scale(s) rotate(r, 100, 100)
+        const transformedPoints = this.applySVGTransform(path, translateX, translateY, scale, rotation);
+        
+        if (cell.type === "NE") {
+          console.log(`NE transformed points:`, transformedPoints);
+        }
+        
+        // Convert path into line segments
+        for (let i = 0; i < transformedPoints.length - 1; i++) {
+          const p1 = transformedPoints[i];
+          const p2 = transformedPoints[i + 1];
+          
+          // G-code coordinates (flip Y axis)
+          const gcodeX1 = p1.x;
+          const gcodeY1 = this.settings.canvasHeight - p1.y;
+          const gcodeX2 = p2.x;
+          const gcodeY2 = this.settings.canvasHeight - p2.y;
+          
+          if (cell.type === "NE") {
+            console.log(`NE G-code line: (${gcodeX1.toFixed(2)},${gcodeY1.toFixed(2)}) -> (${gcodeX2.toFixed(2)},${gcodeY2.toFixed(2)})`);
+          }
+          
+          lines.push({
+            x1: gcodeX1,
+            y1: gcodeY1,
+            x2: gcodeX2,
+            y2: gcodeY2
+          });
+        }
+      }
+    });
+
+    return lines;
+  }
+
+  applySVGTransform(points, translateX, translateY, scale, rotation) {
+    // Apply SVG transform exactly: translate(tx,ty) scale(s) rotate(r, 100, 100)
+    const rotationRad = (rotation * Math.PI) / 180;
+    const cos = Math.cos(rotationRad);
+    const sin = Math.sin(rotationRad);
+    
+    return points.map(point => {
+      // Step 1: Scale around origin
+      let x = point.x * scale;
+      let y = point.y * scale;
+      
+      // Step 2: Rotate around center point (100, 100) scaled
+      const centerX = 100 * scale;
+      const centerY = 100 * scale;
+      
+      const dx = x - centerX;
+      const dy = y - centerY;
+      
+      const rotatedX = centerX + dx * cos - dy * sin;
+      const rotatedY = centerY + dx * sin + dy * cos;
+      
+      // Step 3: Translate
+      return {
+        x: rotatedX + translateX,
+        y: rotatedY + translateY
+      };
+    });
+  }
+
+  linesToGCode(lines) {
+    if (lines.length === 0) return "";
+
+    const feedRate = this.settings.feedRate;
+    const penDownZ = this.settings.penDownZ;
+    const penUpZ = this.settings.penUpZ;
+    const preventZhop = this.settings.preventZhop;
+
+    let gcode = "";
+    let currentX = 0;
+    let currentY = 0;
+    let penIsDown = false;
+
+    // Optimize path to minimize travel distance
+    const optimizedLines = this.optimizeLinePath(lines, currentX, currentY);
+
+    optimizedLines.forEach((line) => {
+      const { x1, y1, x2, y2 } = line;
+
+      // Check if we need to move to start position
+      const moveDistance = Math.sqrt((currentX - x1) ** 2 + (currentY - y1) ** 2);
+      
+      if (moveDistance > 0.001) {
+        // Decide whether to lift pen based on move distance
+        if (penIsDown && moveDistance > preventZhop) {
+          gcode += `G0 Z${penUpZ.toFixed(3)} ; Pen up\n`;
+          penIsDown = false;
+        }
+        
+        // Move to start position
+        const moveCommand = penIsDown ? "G1" : "G0";
+        gcode += `${moveCommand} X${x1.toFixed(3)} Y${y1.toFixed(3)} ; ${penIsDown ? "Drag" : "Move"} to start\n`;
+        currentX = x1;
+        currentY = y1;
+      }
+
+      // Pen down and draw line
+      if (!penIsDown) {
+        gcode += `G1 Z${penDownZ.toFixed(3)} ; Pen down\n`;
+        penIsDown = true;
+      }
+      
+      gcode += `G1 X${x2.toFixed(3)} Y${y2.toFixed(3)} ; Draw line\n`;
+      currentX = x2;
+      currentY = y2;
+    });
+
     return gcode;
   }
 
-  convertPipeSectionToGCode(pipeSection, gridX, gridY, cell, cellSize) {
+  optimizeLinePath(lines, startX, startY) {
+    if (lines.length === 0) return [];
+    
+    const optimized = [];
+    const remaining = [...lines];
+    let currentX = startX;
+    let currentY = startY;
+
+    while (remaining.length > 0) {
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      let bestReversed = false;
+
+      // Find closest line start or end point
+      for (let i = 0; i < remaining.length; i++) {
+        const line = remaining[i];
+        
+        // Distance to start of line
+        const distToStart = Math.sqrt((currentX - line.x1) ** 2 + (currentY - line.y1) ** 2);
+        if (distToStart < bestDistance) {
+          bestDistance = distToStart;
+          bestIndex = i;
+          bestReversed = false;
+        }
+        
+        // Distance to end of line (reversed)
+        const distToEnd = Math.sqrt((currentX - line.x2) ** 2 + (currentY - line.y2) ** 2);
+        if (distToEnd < bestDistance) {
+          bestDistance = distToEnd;
+          bestIndex = i;
+          bestReversed = true;
+        }
+      }
+
+      // Add best line to optimized path
+      const bestLine = remaining.splice(bestIndex, 1)[0];
+      if (bestReversed) {
+        // Reverse the line
+        optimized.push({
+          x1: bestLine.x2,
+          y1: bestLine.y2,
+          x2: bestLine.x1,
+          y2: bestLine.y1
+        });
+        currentX = bestLine.x1;
+        currentY = bestLine.y1;
+      } else {
+        optimized.push(bestLine);
+        currentX = bestLine.x2;
+        currentY = bestLine.y2;
+      }
+    }
+
+    return optimized;
+  }
+
+  convertPipeSectionToSegments(pipeSection, gridX, gridY, cell, cellSize) {
     const rotation = this.calculatePipeRotation(cell.connections, cell.type);
     const scale = cellSize / 200;
     const translateX = gridX * cellSize;
     const translateY = gridY * cellSize;
 
-    // Parse SVG path and convert to G-code
-    const paths = this.parseSVGPath(pipeSection.path);
-    let gcode = "";
+    console.log(`Converting pipe section at ${gridX},${gridY}: scale=${scale}, rotation=${rotation}`);
 
-    paths.forEach((path) => {
+    // Parse SVG path and convert to segments
+    const paths = this.parseSVGPath(pipeSection.path);
+    console.log(`Parsed ${paths.length} paths from SVG:`, paths);
+    
+    const allSegments = [];
+
+    paths.forEach((path, pathIndex) => {
+      console.log(`Processing path ${pathIndex} with ${path.length} points`);
       const transformedPath = this.transformPath(
         path,
         translateX,
@@ -1907,13 +2151,63 @@ class PipeMazeGenerator {
         scale,
         rotation
       );
+      console.log(`Transformed path has ${transformedPath.length} points`);
+      
       const clippedSegments = this.clipPathToCanvas(transformedPath);
+      console.log(`Clipped into ${clippedSegments.length} segments`);
+      
+      allSegments.push(...clippedSegments);
+    });
 
-      clippedSegments.forEach((segment) => {
-        if (segment.length > 1) {
-          gcode += this.pathSegmentToGCode(segment);
+    console.log(`Total segments for this pipe section: ${allSegments.length}`);
+    return allSegments;
+  }
+
+  mergeCloseSegments(segments) {
+    if (segments.length === 0) return [];
+
+    const mergeDistance = this.settings.preventZhop;
+    const merged = [];
+    let currentSegment = [...segments[0]];
+
+    for (let i = 1; i < segments.length; i++) {
+      const nextSegment = segments[i];
+      
+      if (nextSegment.length === 0) continue;
+
+      // Check if we can connect current segment end to next segment start
+      const currentEnd = currentSegment[currentSegment.length - 1];
+      const nextStart = nextSegment[0];
+      const distance = this.calculateDistance(currentEnd, nextStart);
+
+      if (distance <= mergeDistance) {
+        // Merge segments - append next segment (excluding first point to avoid duplication)
+        currentSegment.push(...nextSegment.slice(1));
+      } else {
+        // Can't merge, save current segment and start new one
+        if (currentSegment.length > 1) {
+          merged.push(currentSegment);
         }
-      });
+        currentSegment = [...nextSegment];
+      }
+    }
+
+    // Don't forget the last segment
+    if (currentSegment.length > 1) {
+      merged.push(currentSegment);
+    }
+
+    return merged;
+  }
+
+  convertPipeSectionToGCode(pipeSection, gridX, gridY, cell, cellSize) {
+    const segments = this.convertPipeSectionToSegments(pipeSection, gridX, gridY, cell, cellSize);
+    let gcode = "";
+
+    segments.forEach((segment) => {
+      if (segment.length > 1) {
+        gcode += this.pathSegmentToGCode(segment);
+      }
     });
 
     return gcode;
@@ -1923,8 +2217,7 @@ class PipeMazeGenerator {
     const paths = [];
     const commands = pathData.match(/[MLHVCSQTAZ][^MLHVCSQTAZ]*/gi) || [];
     let currentPath = [];
-    let currentX = 0,
-      currentY = 0;
+    let currentX = 0, currentY = 0;
 
     commands.forEach((command) => {
       const type = command[0].toUpperCase();
@@ -1950,6 +2243,20 @@ class PipeMazeGenerator {
           for (let i = 0; i < coords.length; i += 2) {
             currentX = coords[i];
             currentY = coords[i + 1];
+            currentPath.push({ x: currentX, y: currentY });
+          }
+          break;
+
+        case "H": // Horizontal line
+          for (let i = 0; i < coords.length; i++) {
+            currentX = coords[i];
+            currentPath.push({ x: currentX, y: currentY });
+          }
+          break;
+
+        case "V": // Vertical line
+          for (let i = 0; i < coords.length; i++) {
+            currentY = coords[i];
             currentPath.push({ x: currentX, y: currentY });
           }
           break;
@@ -2093,25 +2400,62 @@ class PipeMazeGenerator {
   }
 
   pathSegmentToGCode(segment) {
+    if (segment.length === 0) return "";
+
+    // Optimize segment by merging close points
+    const optimizedSegment = this.optimizePathSegment(segment);
+    
+    if (optimizedSegment.length === 0) return "";
+
     let gcode = "";
 
     // Move to start
-    gcode += `G0 X${segment[0].x.toFixed(3)} Y${segment[0].y.toFixed(3)}\n`;
-    gcode += `G1 Z${this.settings.penDownZ.toFixed(3)} F${
-      this.settings.feedRate
-    }\n`;
+    gcode += `G0 X${optimizedSegment[0].x.toFixed(3)} Y${optimizedSegment[0].y.toFixed(3)}\n`;
+    gcode += `G1 Z${this.settings.penDownZ.toFixed(3)} F${this.settings.feedRate}\n`;
 
-    // Draw path
-    for (let i = 1; i < segment.length; i++) {
-      gcode += `G1 X${segment[i].x.toFixed(3)} Y${segment[i].y.toFixed(3)} F${
-        this.settings.feedRate
-      }\n`;
+    // Draw optimized path
+    for (let i = 1; i < optimizedSegment.length; i++) {
+      gcode += `G1 X${optimizedSegment[i].x.toFixed(3)} Y${optimizedSegment[i].y.toFixed(3)} F${this.settings.feedRate}\n`;
     }
 
     // Lift pen
     gcode += `G1 Z${this.settings.penUpZ.toFixed(3)}\n`;
 
     return gcode;
+  }
+
+  optimizePathSegment(segment) {
+    if (segment.length <= 2) return segment;
+
+    const mergeDistance = this.settings.preventZhop; // Use the "Skip Z-hop for moves <" parameter
+    const optimized = [segment[0]]; // Always keep the first point
+
+    for (let i = 1; i < segment.length; i++) {
+      const currentPoint = segment[i];
+      const lastOptimizedPoint = optimized[optimized.length - 1];
+      
+      // Calculate distance between current point and last optimized point
+      const distance = this.calculateDistance(currentPoint, lastOptimizedPoint);
+      
+      if (distance >= mergeDistance) {
+        // Points are far enough apart, keep this point
+        optimized.push(currentPoint);
+      }
+      // If distance < mergeDistance, skip this point (merge it)
+    }
+
+    // Always keep the last point to ensure we reach the end
+    if (optimized[optimized.length - 1] !== segment[segment.length - 1]) {
+      optimized.push(segment[segment.length - 1]);
+    }
+
+    return optimized;
+  }
+
+  calculateDistance(point1, point2) {
+    const dx = point2.x - point1.x;
+    const dy = point2.y - point1.y;
+    return Math.sqrt(dx * dx + dy * dy);
   }
 
   generateGCodeHeader() {
