@@ -47,24 +47,6 @@
                                 <a href="#" id="downloadIndividualSvgBtn">Individual Layers SVG</a>
                             </div>
                         </div>
-                        
-                        <div class="download-dropdown">
-                            <button class="download-btn secondary compact" id="gcodeDownloadBtn">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7,10 12,15 17,10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                </svg>
-                                G-code
-                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="6,9 12,15 18,9"/>
-                                </svg>
-                            </button>
-                            <div class="dropdown-content" id="gcodeDropdown">
-                                <a href="#" id="downloadGcodeBtn">Combined G-code</a>
-                                <a href="#" id="downloadIndividualGcodeBtn">Individual Layers G-code</a>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 
@@ -154,30 +136,6 @@
                         <div class="input-row">
                             <label>Pen Diameter:</label>
                             <input type="number" id="penDiameterValue" min="0.1" max="10" step="0.1" value="0.5">
-                            <span class="unit-label">mm</span>
-                        </div>
-                    </div>
-
-                    <div class="control-group">
-                        <h3>G-code Settings</h3>
-                        <div class="input-row">
-                            <label>Feed Rate:</label>
-                            <input type="number" id="feedRateValue" min="50" max="10000" step="10" value="2500">
-                            <span class="unit-label">mm/min</span>
-                        </div>
-                        <div class="input-row">
-                            <label>Pen Down Z:</label>
-                            <input type="number" id="penDownZValue" min="-20" max="5" step="0.01" value="-1">
-                            <span class="unit-label">mm</span>
-                        </div>
-                        <div class="input-row">
-                            <label>Pen Up Z:</label>
-                            <input type="number" id="penUpZValue" min="0" max="50" step="0.01" value="2">
-                            <span class="unit-label">mm</span>
-                        </div>
-                        <div class="input-row">
-                            <label>Skip Z-hop for moves &lt;</label>
-                            <input type="number" id="preventZhopValue" min="0" max="50" step="0.1" value="2">
                             <span class="unit-label">mm</span>
                         </div>
                     </div>
@@ -329,7 +287,6 @@
 
     <script src="../configManager.js"></script>
     <script src="../interactiveCanvas.js"></script>
-    <script src="../gcodeGenerator.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

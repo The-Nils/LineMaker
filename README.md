@@ -18,7 +18,7 @@ I built a pen mount for my CNC machine and needed some tools to generate line ar
   - Interactive canvas with pan/zoom
   - Drag & drop image upload
   - Configurable line patterns, spacing, and angles
-  - SVG and G-code export
+  - SVG export
   - Save/load configurations
 
 ![HatchMaker CMYK Example](assets/screenshots/LineMaker-screenshot-CMYK.png)
@@ -35,7 +35,7 @@ _HatchMaker black and white line art output_
   - Independent parameters per layer (offset, angle, skew)
   - Dynamic layer management (add/remove layers)
   - Per-layer white point and line spacing controls
-  - Optimized SVG and G-code generation with 70-90% file size reduction
+  - Optimized SVG generation with 70-90% file size reduction
   - Travel move visualization for continuous pen-down drawing
   - Configuration save/load with import/export capabilities
 
@@ -53,10 +53,19 @@ _HatchMoiréMaker generating complex moiré interference patterns_
   - Real-time field visualization and line deformation
   - Advanced recursive subdivision for smooth curves
   - Configuration save/load system
-  - SVG and G-code export with travel optimization
+  - SVG export with travel optimization
 
 ![FieldLines Example](assets/screenshots/fieldlines-screenshot.png)
 _FieldLines generating organic patterns through simulated force fields_
+
+### 🛠️ SVG to G-code
+
+- **What it does**: Converts existing SVG artwork into optimized pen-plotter G-code
+- **Features**:
+  - Geometry sampling with configurable tolerance and curve flattening
+  - Travel vs draw path preview with color-coded segments
+  - Unit scaling, alignment helpers, and optional path ordering optimization
+  - Direct download of both preview SVG and generated G-code
 
 ## Coming... Eventually
 
@@ -87,7 +96,7 @@ This is a **hobby project** with the following disclaimers:
    - **FieldLines**: For organic field line patterns using force field simulation
 4. Upload an image
 5. Fiddle with settings until it looks good
-6. Export SVG or G-code
+6. Export SVG (use the SVG to G-code tool if you need machine toolpaths)
 7. Send to your CNC/plotter
 8. Watch it draw things
 

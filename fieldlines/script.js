@@ -193,8 +193,6 @@ class FieldLines {
         // Download buttons
         document.getElementById('downloadSvgBtn').addEventListener('click', () => this.downloadCombinedSvg());
         document.getElementById('downloadIndividualSvgBtn').addEventListener('click', () => this.downloadIndividualSvgs());
-        document.getElementById('downloadGcodeBtn').addEventListener('click', () => this.downloadCombinedGcode());
-        document.getElementById('downloadIndividualGcodeBtn').addEventListener('click', () => this.downloadIndividualGcodes());
 
         // SVG interaction
         this.fieldPointsSvg.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
@@ -1292,18 +1290,6 @@ class FieldLines {
         });
     }
 
-    downloadCombinedGcode() {
-        const gcodeContent = this.generateCombinedGcode();
-        this.downloadFile(gcodeContent, 'fieldlines_combined.gcode', 'text/plain');
-    }
-
-    downloadIndividualGcodes() {
-        this.layers.forEach((layer, index) => {
-            const gcodeContent = this.generateLayerGcode(layer, index);
-            this.downloadFile(gcodeContent, `fieldlines_layer_${index + 1}.gcode`, 'text/plain');
-        });
-    }
-
     generateCombinedSvg() {
         const widthMm = this.getCanvasWidth();
         const heightMm = this.getCanvasHeight();
@@ -1349,171 +1335,6 @@ class FieldLines {
         svg += `  </g>
 </svg>`;
         return svg;
-    }
-
-    generateCombinedGcode() {
-        // Collect all paths from all layers with their path data
-        const allPaths = [];
-        let totalPaths = 0;
-        
-        this.layers.forEach((layer, layerIndex) => {
-            if (layer.group) {
-                const paths = layer.group.querySelectorAll('path');
-                totalPaths += paths.length;
-                paths.forEach(path => {
-                    const pathData = this.parsePathData(path.getAttribute('d'));
-                    if (pathData.length > 0) {
-                        allPaths.push({
-                            pathData: pathData,
-                            layerIndex: layerIndex,
-                            originalPath: path.getAttribute('d')
-                        });
-                    }
-                });
-            }
-        });
-        
-        console.log(`Processing ${allPaths.length} paths for G-code generation`);
-        
-        // If too many paths, fall back to simple layer-by-layer processing
-        if (allPaths.length > 200) {
-            console.log('Too many paths for full optimization, using simple approach');
-            return this.generateCombinedGcodeSimple();
-        }
-
-        const generator = this.createGcodeGenerator();
-        generator.beginProgram({
-            toolName: 'FieldLines - LineMaker',
-            canvasWidth: this.getCanvasWidth(),
-            canvasHeight: this.getCanvasHeight(),
-            headerLines: [`Paths: ${allPaths.length}`]
-        });
-
-        // Optimize path order to minimize travel moves
-        const optimizedPaths = this.optimizePathOrderSafe(allPaths);
-
-        // Convert optimized paths to G-code
-        optimizedPaths.forEach((pathInfo, index) => {
-            if (index % 50 === 0) {
-                console.log(`Processing path ${index + 1}/${optimizedPaths.length}`);
-            }
-            this.emitPathSegmentsToGenerator(generator, pathInfo.pathData);
-        });
-
-        generator.finishProgram();
-        return generator.toString();
-    }
-
-    generateCombinedGcodeSimple() {
-        const generator = this.createGcodeGenerator();
-        generator.beginProgram({
-            toolName: 'FieldLines - LineMaker',
-            canvasWidth: this.getCanvasWidth(),
-            canvasHeight: this.getCanvasHeight(),
-            headerLines: ['Simple export']
-        });
-
-        this.layers.forEach((layer) => {
-            if (!layer.group) return;
-            const paths = layer.group.querySelectorAll('path');
-            paths.forEach((path) => {
-                this.appendPathDataToGenerator(path.getAttribute('d'), generator);
-            });
-        });
-
-        generator.finishProgram();
-        return generator.toString();
-    }
-
-    generateLayerGcode(layer, index) {
-        const generator = this.createGcodeGenerator();
-        generator.beginProgram({
-            toolName: 'FieldLines - LineMaker',
-            canvasWidth: this.getCanvasWidth(),
-            canvasHeight: this.getCanvasHeight(),
-            headerLines: [`Layer ${index + 1}`]
-        });
-
-        // Collect paths from this layer only
-        const layerPaths = [];
-        if (layer.group) {
-            const paths = layer.group.querySelectorAll('path');
-            paths.forEach(path => {
-                const pathData = this.parsePathData(path.getAttribute('d'));
-                if (pathData.length > 0) {
-                    layerPaths.push({
-                        pathData: pathData,
-                        layerIndex: index,
-                        originalPath: path.getAttribute('d')
-                    });
-                }
-            });
-        }
-        
-        console.log(`Layer ${index + 1}: Processing ${layerPaths.length} paths`);
-        
-        // Use safer optimization for individual layers
-        const optimizedPaths = this.optimizePathOrderSafe(layerPaths);
-        
-        // Convert optimized paths to G-code
-        optimizedPaths.forEach(pathInfo => {
-            this.emitPathSegmentsToGenerator(generator, pathInfo.pathData);
-        });
-
-        generator.finishProgram();
-        return generator.toString();
-    }
-
-    createGcodeGenerator() {
-        const feedInput = Number.parseFloat(document.getElementById('feedRateValue').value);
-        const penDownInput = Number.parseFloat(document.getElementById('penDownZValue').value);
-        const penUpInput = Number.parseFloat(document.getElementById('penUpZValue').value);
-        const preventZhopInput = Number.parseFloat(document.getElementById('preventZhopValue').value);
-
-        const feedRate = Number.isFinite(feedInput) ? feedInput : 0;
-        const penDownZ = Number.isFinite(penDownInput) ? penDownInput : 0;
-        const penUpZ = Number.isFinite(penUpInput) ? penUpInput : 0;
-        const preventZhop = Number.isFinite(preventZhopInput) ? preventZhopInput : 0;
-
-        return new GCodeGenerator({
-            toolName: 'FieldLines - LineMaker',
-            canvasWidth: this.getCanvasWidth(),
-            canvasHeight: this.getCanvasHeight(),
-            feedRate,
-            penDownZ,
-            penUpZ,
-            preventZhop,
-            homeCommand: 'G28 ; Home',
-            footerLines: [
-                () => '; End of program',
-                'G28 ; Home',
-                'M30 ; Program end'
-            ]
-        });
-    }
-
-    appendPathDataToGenerator(pathData, generator) {
-        if (!pathData || !generator) return;
-        const pathSegments = this.parsePathData(pathData);
-        if (!Array.isArray(pathSegments) || pathSegments.length === 0) return;
-        this.emitPathSegmentsToGenerator(generator, pathSegments);
-    }
-
-    emitPathSegmentsToGenerator(generator, pathSegments) {
-        if (!generator || !Array.isArray(pathSegments)) return;
-
-        pathSegments.forEach((segment) => {
-            if (!Array.isArray(segment) || segment.length === 0) return;
-            const cleanedSegment = this.removeRedundantClampedPoints(segment);
-            if (!Array.isArray(cleanedSegment) || cleanedSegment.length < 2) return;
-
-            const polyline = cleanedSegment.map((point) => this.pixelPointToMillimeters(point));
-            generator.drawPolyline(polyline, {
-                feedRate: generator.feedRate,
-                preventZhop: generator.options.preventZhop,
-                segmentComment: 'Draw line'
-            });
-        });
     }
 
     pixelPointToMillimeters(point) {
@@ -2000,7 +1821,7 @@ class FieldLines {
     }
 
     areOnSameEdgeGcode(point1, point2, canvasWidth, canvasHeight) {
-        // Check if both points are on the same edge of the canvas (for G-code coordinates)
+        // Check if both points are on the same edge of the canvas
         const tolerance = 0.1;
         
         // Left edge

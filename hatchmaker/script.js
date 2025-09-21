@@ -14,8 +14,7 @@ class PenPlotterConverter {
         svg: document.getElementById("outputSvgC"),
         group: document.getElementById("pen-plotter-lines-C"),
         svgContent: "",
-        gcodeLines: [],
-        dragLines: [],
+        lineCount: 0,
         color: "#00FFFF",
         renderColor: "#00FFFF",
       },
@@ -23,8 +22,7 @@ class PenPlotterConverter {
         svg: document.getElementById("outputSvgM"),
         group: document.getElementById("pen-plotter-lines-M"),
         svgContent: "",
-        gcodeLines: [],
-        dragLines: [],
+        lineCount: 0,
         color: "#FF00FF",
         renderColor: "#FF00FF",
       },
@@ -32,8 +30,7 @@ class PenPlotterConverter {
         svg: document.getElementById("outputSvgY"),
         group: document.getElementById("pen-plotter-lines-Y"),
         svgContent: "",
-        gcodeLines: [],
-        dragLines: [],
+        lineCount: 0,
         color: "#FFFF00",
         renderColor: "#FFFF00",
       },
@@ -41,8 +38,7 @@ class PenPlotterConverter {
         svg: document.getElementById("outputSvgK"),
         group: document.getElementById("pen-plotter-lines-K"),
         svgContent: "",
-        gcodeLines: [],
-        dragLines: [],
+        lineCount: 0,
         color: "#000000",
         renderColor: "#000000",
       },
@@ -124,9 +120,6 @@ class PenPlotterConverter {
     this.setupNumberInput("maxLinesPerChannelValue", () => {
       this.autoComputeSpacingParameters();
     });
-    this.setupNumberInput("feedRateValue", () => {});
-    this.setupNumberInput("penDownZValue", () => {});
-    this.setupNumberInput("penUpZValue", () => {});
 
     // CMYK channel checkboxes
     ["C", "M", "Y", "K"].forEach((channel) => {
@@ -388,10 +381,6 @@ class PenPlotterConverter {
       whitePointM: document.getElementById("whitePointMValue").value,
       whitePointY: document.getElementById("whitePointYValue").value,
       whitePointK: document.getElementById("whitePointKValue").value,
-      feedRate: document.getElementById("feedRateValue").value + "mm/min",
-      penDownZ: document.getElementById("penDownZValue").value + "mm",
-      penUpZ: document.getElementById("penUpZValue").value + "mm",
-      preventZhop: document.getElementById("preventZhopValue").value + "mm",
       generatedAt: new Date().toISOString(),
     };
 
@@ -643,9 +632,9 @@ class PenPlotterConverter {
 
       // Clear all channels first
       enabledChannels.forEach((channel) => {
-        this.channels[channel].group.innerHTML = "";
-        this.channels[channel].gcodeLines = [];
-        this.channels[channel].dragLines = [];
+        const data = this.channels[channel];
+        data.group.innerHTML = "";
+        data.lineCount = 0;
       });
 
       // Process each enabled channel with chunked rendering
@@ -662,19 +651,14 @@ class PenPlotterConverter {
 
       if (!this.processingCancelled) {
         // Update line count display (sum of all channels)
-        const totalLines = enabledChannels.reduce(
-          (sum, channel) => sum + this.channels[channel].gcodeLines.length,
-          0
-        );
+        const totalLines = enabledChannels.reduce((sum, channel) => {
+          return sum + (this.channels[channel].lineCount || 0);
+        }, 0);
         document.getElementById("lineCount").textContent =
           totalLines.toLocaleString();
 
-        // Generate drag lines for all enabled channels
-        this.generateDragLines();
-
         // Enable download buttons
         document.getElementById("downloadBtn").disabled = false;
-        document.getElementById("downloadGcodeBtn").disabled = false;
         this.updateChannelVisibility();
 
         this.showStatus("Conversion complete!", "complete");
@@ -712,7 +696,7 @@ class PenPlotterConverter {
 
     // Clear channel data
     channelData.group.innerHTML = "";
-    channelData.gcodeLines = [];
+    channelData.lineCount = 0;
 
     // Create channel-specific intensity map using CMYK conversion
     const intensityMap = this.createChannelIntensityMap(
@@ -836,108 +820,6 @@ class PenPlotterConverter {
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  generateDragLines() {
-    // Generate drag lines for all enabled channels
-    const enabledChannels = ["C", "M", "Y", "K"].filter(
-      (channel) => document.getElementById(`enable${channel}`).checked
-    );
-
-    enabledChannels.forEach((channel) => {
-      this.generateDragLinesForChannel(channel);
-    });
-  }
-
-  generateDragLinesForChannel(channel) {
-    const channelData = this.channels[channel];
-    const preventZhop = parseFloat(
-      document.getElementById("preventZhopValue").value
-    );
-
-    if (channelData.gcodeLines.length === 0) return;
-
-    // Clear existing drag lines
-    channelData.dragLines = [];
-
-    // Optimize path to get the order lines will be drawn
-    const optimizedPath = this.optimizeGcodePath(channelData.gcodeLines, 0, 0);
-
-    let currentX = 0;
-    let currentY = 0;
-
-    optimizedPath.forEach((segment) => {
-      const { startX, startY } = segment;
-
-      // Check if we need to move to start position
-      if (
-        Math.abs(currentX - startX) > 0.001 ||
-        Math.abs(currentY - startY) > 0.001
-      ) {
-        // Calculate move distance
-        const moveDistance = Math.sqrt(
-          (startX - currentX) ** 2 + (startY - currentY) ** 2
-        );
-
-        // If move distance is within prevent Z-hop threshold, add as drag line
-        if (moveDistance <= preventZhop && moveDistance > 0.001) {
-          channelData.dragLines.push({
-            x1: currentX,
-            y1: currentY,
-            x2: startX,
-            y2: startY,
-          });
-
-          // Add to SVG preview
-          this.addDragLineToPreview(
-            channel,
-            currentX,
-            currentY,
-            startX,
-            startY
-          );
-        }
-      }
-
-      // Update current position to end of this segment
-      currentX = segment.endX;
-      currentY = segment.endY;
-    });
-  }
-
-  addDragLineToPreview(channel, x1, y1, x2, y2) {
-    const channelData = this.channels[channel];
-    const penWidthPx =
-      parseFloat(document.getElementById("penDiameterValue").value) *
-      this.pixelsPerMm;
-
-    // Convert mm coordinates back to pixels for SVG
-    const px1 = x1 * this.pixelsPerMm;
-    const py1 = y1 * this.pixelsPerMm;
-    const px2 = x2 * this.pixelsPerMm;
-    const py2 = y2 * this.pixelsPerMm;
-
-    // Apply Y-coordinate flip for preview (opposite of G-code flip)
-    const canvasHeightMm = parseFloat(
-      document.getElementById("canvasHeightValue").value
-    );
-    const canvasHeightPx = canvasHeightMm * this.pixelsPerMm;
-    const svgY1 = canvasHeightPx - py1;
-    const svgY2 = canvasHeightPx - py2;
-
-    // Create SVG line element
-    const lineElement = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "line"
-    );
-    lineElement.setAttribute("x1", px1.toFixed(3));
-    lineElement.setAttribute("y1", svgY1.toFixed(3));
-    lineElement.setAttribute("x2", px2.toFixed(3));
-    lineElement.setAttribute("y2", svgY2.toFixed(3));
-    lineElement.setAttribute("stroke-width", penWidthPx.toFixed(3));
-    lineElement.setAttribute("stroke", channelData.renderColor);
-
-    channelData.group.appendChild(lineElement);
-  }
-
   // Cancel current processing if parameters change
   cancelProcessing() {
     if (this.isProcessing) {
@@ -987,9 +869,9 @@ class PenPlotterConverter {
       const channelIndex = enabledChannels.indexOf(targetChannel);
       if (channelIndex === -1) {
         // Channel is not enabled, just clear it
-        this.channels[targetChannel].group.innerHTML = "";
-        this.channels[targetChannel].gcodeLines = [];
-        this.channels[targetChannel].dragLines = [];
+        const data = this.channels[targetChannel];
+        data.group.innerHTML = "";
+        data.lineCount = 0;
         this.hideProgress();
         this.isProcessing = false;
         return;
@@ -1006,15 +888,12 @@ class PenPlotterConverter {
         // Update line count display (sum of all channels)
         const totalLines = ["C", "M", "Y", "K"].reduce((sum, channel) => {
           if (document.getElementById(`enable${channel}`).checked) {
-            return sum + this.channels[channel].gcodeLines.length;
+            return sum + (this.channels[channel].lineCount || 0);
           }
           return sum;
         }, 0);
         document.getElementById("lineCount").textContent =
           totalLines.toLocaleString();
-
-        // Generate drag lines for this channel
-        this.generateDragLinesForChannel(targetChannel);
 
         // Update download button states
         this.updateChannelVisibility();
@@ -1198,13 +1077,13 @@ class PenPlotterConverter {
         document.getElementById("minLineLengthValue").value
       );
       const filteredSegments = pathSegments.filter((segment) => {
-        const gcodeX1 = segment.startX / this.pixelsPerMm;
-        const gcodeY1 = segment.startY / this.pixelsPerMm;
-        const gcodeX2 = segment.endX / this.pixelsPerMm;
-        const gcodeY2 = segment.endY / this.pixelsPerMm;
+        const startMmX = segment.startX / this.pixelsPerMm;
+        const startMmY = segment.startY / this.pixelsPerMm;
+        const endMmX = segment.endX / this.pixelsPerMm;
+        const endMmY = segment.endY / this.pixelsPerMm;
 
         const lineLengthMm = Math.sqrt(
-          (gcodeX2 - gcodeX1) ** 2 + (gcodeY2 - gcodeY1) ** 2
+          (endMmX - startMmX) ** 2 + (endMmY - startMmY) ** 2
         );
 
         return lineLengthMm >= minLineLengthMm;
@@ -1247,23 +1126,13 @@ class PenPlotterConverter {
             this.channels[channel].renderColor
           );
           this.channels[channel].group.appendChild(lineElement);
+
+          if (typeof this.channels[channel].lineCount === "number") {
+            this.channels[channel].lineCount += 1;
+          } else {
+            this.channels[channel].lineCount = 1;
+          }
         }
-
-        // Add to channel G-code (flip Y coordinate to match typical G-code coordinate system)
-        const canvasHeightMm = parseFloat(
-          document.getElementById("canvasHeightValue").value
-        );
-        const gcodeX1 = segment.startX / this.pixelsPerMm;
-        const gcodeY1 = canvasHeightMm - segment.startY / this.pixelsPerMm;
-        const gcodeX2 = segment.endX / this.pixelsPerMm;
-        const gcodeY2 = canvasHeightMm - segment.endY / this.pixelsPerMm;
-
-        this.channels[channel].gcodeLines.push({
-          x1: gcodeX1,
-          y1: gcodeY1,
-          x2: gcodeX2,
-          y2: gcodeY2,
-        });
       });
     }
   }
@@ -1332,186 +1201,6 @@ class PenPlotterConverter {
 
     uniquePoints.sort((a, b) => a.t - b.t);
     return uniquePoints.slice(0, 2);
-  }
-
-  drawOptimizedVariableThicknessLine(
-    x1,
-    y1,
-    x2,
-    y2,
-    intensityMap,
-    width,
-    height,
-    penDiameter
-  ) {
-    const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-    const steps = Math.ceil(length / 2);
-
-    // Sample intensity along the entire line
-    const intensities = [];
-    for (let i = 0; i < steps; i++) {
-      const t = i / (steps - 1);
-      const x = x1 + (x2 - x1) * t;
-      const y = y1 + (y2 - y1) * t;
-      const intensity = this.sampleIntensity(x, y, intensityMap, width, height);
-      intensities.push({ x, y, intensity, t });
-    }
-
-    // Calculate perpendicular direction for line spacing
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const lineLength = Math.sqrt(dx * dx + dy * dy);
-    const perpX = -dy / lineLength;
-    const perpY = dx / lineLength;
-
-    const penWidthPx = penDiameter * this.pixelsPerMm;
-    const userLineSpacing = parseFloat(
-      document.getElementById("lineSpacingValue").value
-    );
-    const lineSpacingPx = userLineSpacing * this.pixelsPerMm;
-
-    // Determine maximum number of lines needed
-    const maxLinesPerChannel = parseInt(
-      document.getElementById("maxLinesPerChannelValue").value
-    );
-    const maxIntensity = Math.max(...intensities.map((p) => p.intensity));
-    const maxLines = Math.ceil(maxLinesPerChannel * maxIntensity);
-
-    // For each possible line position (center + alternating)
-    for (let lineIndex = 0; lineIndex < maxLines; lineIndex++) {
-      // Calculate offset using center + alternating pattern
-      let offset;
-      if (lineIndex === 0) {
-        offset = 0; // Center line
-      } else {
-        const segmentIndex = Math.ceil(lineIndex / 2);
-        const isTop = lineIndex % 2 === 1;
-        offset = isTop
-          ? segmentIndex * lineSpacingPx
-          : -segmentIndex * lineSpacingPx;
-      }
-
-      // Build the path for this line by collecting segments where it should exist
-      let pathSegments = [];
-      let currentSegment = null;
-
-      for (let i = 0; i < intensities.length; i++) {
-        const point = intensities[i];
-        const requiredLines = Math.ceil(maxLinesPerChannel * point.intensity);
-        const shouldDrawLine = lineIndex < requiredLines;
-
-        if (shouldDrawLine) {
-          const segmentX = point.x + perpX * offset;
-          const segmentY = point.y + perpY * offset;
-
-          if (!currentSegment) {
-            // Start new segment
-            currentSegment = {
-              startX: segmentX,
-              startY: segmentY,
-              endX: segmentX,
-              endY: segmentY,
-              startT: point.t,
-              endT: point.t,
-            };
-          } else {
-            // Extend current segment
-            currentSegment.endX = segmentX;
-            currentSegment.endY = segmentY;
-            currentSegment.endT = point.t;
-          }
-        } else if (currentSegment) {
-          // End current segment and add to path
-          pathSegments.push(currentSegment);
-          currentSegment = null;
-        }
-      }
-
-      // Don't forget the last segment
-      if (currentSegment) {
-        pathSegments.push(currentSegment);
-      }
-
-      // Merge close segments on the same line BEFORE filtering by minimum length
-      const maxMergeDistanceMm = parseFloat(
-        document.getElementById("maxMergeDistanceValue").value
-      );
-      const maxMergeDistancePx = maxMergeDistanceMm * this.pixelsPerMm;
-
-      if (maxMergeDistanceMm > 0 && pathSegments.length > 1) {
-        pathSegments = this.mergeCloseSegments(
-          pathSegments,
-          maxMergeDistancePx
-        );
-      }
-
-      // Filter out segments shorter than minimum length AFTER merging
-      const minLineLengthMm = parseFloat(
-        document.getElementById("minLineLengthValue").value
-      );
-      const filteredSegments = pathSegments.filter((segment) => {
-        const gcodeX1 = segment.startX / this.pixelsPerMm;
-        const gcodeY1 = segment.startY / this.pixelsPerMm;
-        const gcodeX2 = segment.endX / this.pixelsPerMm;
-        const gcodeY2 = segment.endY / this.pixelsPerMm;
-
-        const lineLengthMm = Math.sqrt(
-          (gcodeX2 - gcodeX1) ** 2 + (gcodeY2 - gcodeY1) ** 2
-        );
-
-        return lineLengthMm >= minLineLengthMm;
-      });
-
-      pathSegments = filteredSegments;
-
-      // Draw and output each segment for this line
-      pathSegments.forEach((segment) => {
-        // Validate coordinates before adding to SVG
-        const x1 = isFinite(segment.startX) ? segment.startX.toFixed(3) : "0";
-        const y1 = isFinite(segment.startY) ? segment.startY.toFixed(3) : "0";
-        const x2 = isFinite(segment.endX) ? segment.endX.toFixed(3) : "0";
-        const y2 = isFinite(segment.endY) ? segment.endY.toFixed(3) : "0";
-        const strokeWidth = isFinite(penWidthPx) ? penWidthPx.toFixed(3) : "1";
-
-        // Only add if line has non-zero length
-        if (
-          Math.abs(parseFloat(x2) - parseFloat(x1)) > 0.001 ||
-          Math.abs(parseFloat(y2) - parseFloat(y1)) > 0.001
-        ) {
-          // Add to SVG content string
-          this.svgContent += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${strokeWidth}"/>
-`;
-
-          // Draw directly to SVG DOM
-          const lineElement = document.createElementNS(
-            "http://www.w3.org/2000/svg",
-            "line"
-          );
-          lineElement.setAttribute("x1", x1);
-          lineElement.setAttribute("y1", y1);
-          lineElement.setAttribute("x2", x2);
-          lineElement.setAttribute("y2", y2);
-          lineElement.setAttribute("stroke-width", strokeWidth);
-          this.linesGroup.appendChild(lineElement);
-        }
-
-        // Add to G-code (flip Y coordinate to match typical G-code coordinate system)
-        const canvasHeightMm = parseFloat(
-          document.getElementById("canvasHeightValue").value
-        );
-        const gcodeX1 = segment.startX / this.pixelsPerMm;
-        const gcodeY1 = canvasHeightMm - segment.startY / this.pixelsPerMm;
-        const gcodeX2 = segment.endX / this.pixelsPerMm;
-        const gcodeY2 = canvasHeightMm - segment.endY / this.pixelsPerMm;
-
-        this.gcodeLines.push({
-          x1: gcodeX1,
-          y1: gcodeY1,
-          x2: gcodeX2,
-          y2: gcodeY2,
-        });
-      });
-    }
   }
 
   mergeCloseSegments(segments, maxMergeDistancePx) {
@@ -1617,32 +1306,6 @@ ${Object.entries(params)
         combinedSvg += `    ${line}\n`;
       });
 
-      // Add drag lines
-      channelData.dragLines.forEach((dragLine) => {
-        // Convert mm coordinates to pixels and apply Y flip
-        const px1 = dragLine.x1 * this.pixelsPerMm;
-        const py1 = dragLine.y1 * this.pixelsPerMm;
-        const px2 = dragLine.x2 * this.pixelsPerMm;
-        const py2 = dragLine.y2 * this.pixelsPerMm;
-
-        const canvasHeightMm = parseFloat(
-          document.getElementById("canvasHeightValue").value
-        );
-        const canvasHeightPx = canvasHeightMm * this.pixelsPerMm;
-        const svgY1 = canvasHeightPx - py1;
-        const svgY2 = canvasHeightPx - py2;
-
-        const penWidthPx =
-          parseFloat(document.getElementById("penDiameterValue").value) *
-          this.pixelsPerMm;
-
-        combinedSvg += `    <line x1="${px1.toFixed(3)}" y1="${svgY1.toFixed(
-          3
-        )}" x2="${px2.toFixed(3)}" y2="${svgY2.toFixed(
-          3
-        )}" stroke-width="${penWidthPx.toFixed(3)}"/>\n`;
-      });
-
       combinedSvg += `  </g>\n`;
     });
 
@@ -1679,240 +1342,8 @@ ${Object.entries(params)
   .join("\n")}`
     );
 
-    // Add drag lines before closing the group
-    if (channelData.dragLines.length > 0) {
-      let dragLinesContent = "";
-      channelData.dragLines.forEach((dragLine) => {
-        // Convert mm coordinates to pixels and apply Y flip
-        const px1 = dragLine.x1 * this.pixelsPerMm;
-        const py1 = dragLine.y1 * this.pixelsPerMm;
-        const px2 = dragLine.x2 * this.pixelsPerMm;
-        const py2 = dragLine.y2 * this.pixelsPerMm;
-
-        const canvasHeightMm = parseFloat(
-          document.getElementById("canvasHeightValue").value
-        );
-        const canvasHeightPx = canvasHeightMm * this.pixelsPerMm;
-        const svgY1 = canvasHeightPx - py1;
-        const svgY2 = canvasHeightPx - py2;
-
-        const penWidthPx =
-          parseFloat(document.getElementById("penDiameterValue").value) *
-          this.pixelsPerMm;
-
-        dragLinesContent += `    <line x1="${px1.toFixed(
-          3
-        )}" y1="${svgY1.toFixed(3)}" x2="${px2.toFixed(3)}" y2="${svgY2.toFixed(
-          3
-        )}" stroke-width="${penWidthPx.toFixed(3)}"/>\n`;
-      });
-
-      // Insert drag lines before closing the group
-      svgWithMetadata = svgWithMetadata.replace(
-        "  </g>\n</svg>",
-        `${dragLinesContent}  </g>\n</svg>`
-      );
-    }
-
     const filename = `${this.originalFilename || "hatch"}-${channel}.svg`;
     const blob = new Blob([svgWithMetadata], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  optimizeGcodePath(lines, startX, startY) {
-    if (lines.length === 0) return [];
-
-    // Create a copy of lines to work with
-    const availableLines = [...lines];
-    const optimizedPath = [];
-    let currentX = startX;
-    let currentY = startY;
-
-    while (availableLines.length > 0) {
-      let closestLineIndex = -1;
-      let closestDistance = Infinity;
-      let useReversed = false;
-
-      // Find the closest endpoint among all remaining lines
-      availableLines.forEach((line, index) => {
-        // Check distance to start of line (x1, y1)
-        const distToStart = Math.sqrt(
-          (currentX - line.x1) ** 2 + (currentY - line.y1) ** 2
-        );
-
-        // Check distance to end of line (x2, y2)
-        const distToEnd = Math.sqrt(
-          (currentX - line.x2) ** 2 + (currentY - line.y2) ** 2
-        );
-
-        // Update closest if we found a better option
-        if (distToStart < closestDistance) {
-          closestDistance = distToStart;
-          closestLineIndex = index;
-          useReversed = false; // Start from x1,y1 -> x2,y2
-        }
-
-        if (distToEnd < closestDistance) {
-          closestDistance = distToEnd;
-          closestLineIndex = index;
-          useReversed = true; // Start from x2,y2 -> x1,y1
-        }
-      });
-
-      // Add the closest line to the optimized path
-      const selectedLine = availableLines[closestLineIndex];
-      let startX, startY, endX, endY;
-
-      if (useReversed) {
-        startX = selectedLine.x2;
-        startY = selectedLine.y2;
-        endX = selectedLine.x1;
-        endY = selectedLine.y1;
-      } else {
-        startX = selectedLine.x1;
-        startY = selectedLine.y1;
-        endX = selectedLine.x2;
-        endY = selectedLine.y2;
-      }
-
-      optimizedPath.push({ startX, startY, endX, endY });
-
-      // Update current position and remove the used line
-      currentX = endX;
-      currentY = endY;
-      availableLines.splice(closestLineIndex, 1);
-    }
-
-    return optimizedPath;
-  }
-
-  downloadGcode() {
-    // Download combined G-code with all enabled channels
-    const enabledChannels = ["C", "M", "Y", "K"].filter(
-      (channel) => document.getElementById(`enable${channel}`).checked
-    );
-
-    if (enabledChannels.length === 0) return;
-
-    // Combine all G-code lines from enabled channels
-    const allLines = [];
-    enabledChannels.forEach((channel) => {
-      allLines.push(...this.channels[channel].gcodeLines);
-    });
-
-    if (allLines.length === 0) return;
-
-    const filename = `${this.originalFilename || "hatch"}-combined.gcode`;
-    this.generateGcodeFile(allLines, filename);
-  }
-
-  downloadChannelGcode(channel) {
-    const channelData = this.channels[channel];
-    if (channelData.gcodeLines.length === 0) return;
-
-    const filename = `${this.originalFilename || "hatch"}-${channel}.gcode`;
-    this.generateGcodeFile(channelData.gcodeLines, filename, channel);
-  }
-
-  generateGcodeFile(lines, filename, channel = null) {
-    if (lines.length === 0) return;
-
-    const feedRate = parseInt(document.getElementById("feedRateValue").value);
-    const penDownZ = parseFloat(document.getElementById("penDownZValue").value);
-    const penUpZ = parseFloat(document.getElementById("penUpZValue").value);
-    const preventZhop = parseFloat(
-      document.getElementById("preventZhopValue").value
-    );
-
-    const { params, enabledChannels } = this.generateMetadataComment();
-
-    let gcode = "";
-
-    // G-code header with metadata
-    gcode += "; Generated by HatchMaker - CMYK Hatch Pattern Generator\n";
-    gcode += `; Source image: ${params.image}\n`;
-    if (channel) {
-      gcode += `; Channel: ${channel}\n`;
-    } else {
-      gcode += `; Channels: ${enabledChannels.join(", ")}\n`;
-    }
-    gcode += "; Parameters:\n";
-    Object.entries(params).forEach(([key, value]) => {
-      gcode += `; ${key}: ${value}\n`;
-    });
-    gcode += `; Total lines: ${lines.length}\n`;
-    gcode += "\n";
-
-    // Initialize
-    gcode += "G21 ; Set units to millimeters\n";
-    gcode += "G90 ; Absolute positioning\n";
-    gcode += "G94 ; Feed rate per minute\n";
-    gcode += `F${feedRate} ; Set feed rate\n`;
-    gcode += `G0 Z${penUpZ} ; Pen up\n`;
-    gcode += "G0 X0 Y0 ; Move to origin\n";
-    gcode += "\n";
-
-    let currentX = 0;
-    let currentY = 0;
-    let penIsDown = false;
-
-    // Optimize path globally to minimize total travel distance
-    const optimizedPath = this.optimizeGcodePath(lines, currentX, currentY);
-
-    optimizedPath.forEach((segment) => {
-      const { startX, startY, endX, endY } = segment;
-
-      // Move to start position if needed
-      if (
-        Math.abs(currentX - startX) > 0.001 ||
-        Math.abs(currentY - startY) > 0.001
-      ) {
-        // Calculate move distance
-        const moveDistance = Math.sqrt(
-          (startX - currentX) ** 2 + (startY - currentY) ** 2
-        );
-
-        if (penIsDown && moveDistance > preventZhop) {
-          // Only lift pen if move is longer than prevent Z-hop distance
-          gcode += `G0 Z${penUpZ} ; Pen up\n`;
-          penIsDown = false;
-        }
-
-        // Use appropriate move command based on pen state
-        const moveCommand = penIsDown ? "G1" : "G0";
-        gcode += `${moveCommand} X${startX.toFixed(3)} Y${startY.toFixed(
-          3
-        )} ; ${penIsDown ? "Drag" : "Move"} to start\n`;
-        currentX = startX;
-        currentY = startY;
-      }
-
-      // Pen down and draw line
-      if (!penIsDown) {
-        gcode += `G1 Z${penDownZ} ; Pen down\n`;
-        penIsDown = true;
-      }
-
-      gcode += `G1 X${endX.toFixed(3)} Y${endY.toFixed(3)} ; Draw line\n`;
-      currentX = endX;
-      currentY = endY;
-    });
-
-    // Footer
-    gcode += "\n";
-    gcode += `G0 Z${penUpZ} ; Pen up\n`;
-    gcode += "G0 X0 Y0 ; Return to origin\n";
-    gcode += "M30 ; Program end\n";
-
-    // Download file
-    const blob = new Blob([gcode], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -2006,12 +1437,6 @@ ${Object.entries(params)
       // Pen settings
       penDiameter: document.getElementById("penDiameterValue").value,
 
-      // G-code settings
-      feedRate: document.getElementById("feedRateValue").value,
-      penDownZ: document.getElementById("penDownZValue").value,
-      penUpZ: document.getElementById("penUpZValue").value,
-      preventZhop: document.getElementById("preventZhopValue").value,
-
       // CMYK settings
       enableC: document.getElementById("enableC").checked,
       enableM: document.getElementById("enableM").checked,
@@ -2059,13 +1484,6 @@ ${Object.entries(params)
     // Apply pen settings
     document.getElementById("penDiameterValue").value =
       params.penDiameter || "0.5";
-
-    // Apply G-code settings
-    document.getElementById("feedRateValue").value = params.feedRate || "1500";
-    document.getElementById("penDownZValue").value = params.penDownZ || "-1";
-    document.getElementById("penUpZValue").value = params.penUpZ || "2";
-    document.getElementById("preventZhopValue").value =
-      params.preventZhop || "2";
 
     // Apply CMYK settings
     document.getElementById("enableC").checked = params.enableC || false;
@@ -2214,37 +1632,6 @@ ${Object.entries(params)
       this.downloadChannelSVG("K");
     });
 
-    // G-code dropdown items
-    document
-      .getElementById("downloadGcodeBtn")
-      .addEventListener("click", (e) => {
-        e.preventDefault();
-        this.downloadGcode();
-      });
-    document
-      .getElementById("downloadCGcodeBtn")
-      .addEventListener("click", (e) => {
-        e.preventDefault();
-        this.downloadChannelGcode("C");
-      });
-    document
-      .getElementById("downloadMGcodeBtn")
-      .addEventListener("click", (e) => {
-        e.preventDefault();
-        this.downloadChannelGcode("M");
-      });
-    document
-      .getElementById("downloadYGcodeBtn")
-      .addEventListener("click", (e) => {
-        e.preventDefault();
-        this.downloadChannelGcode("Y");
-      });
-    document
-      .getElementById("downloadKGcodeBtn")
-      .addEventListener("click", (e) => {
-        e.preventDefault();
-        this.downloadChannelGcode("K");
-      });
   }
 }
 
