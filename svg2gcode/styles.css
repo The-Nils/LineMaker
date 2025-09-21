@@ -1,0 +1,108 @@
+.tool-subtitle {
+  margin: 4px 0 12px;
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.button-row {
+  margin-bottom: 0;
+}
+
+.action-btn.secondary {
+  background: #6c757d;
+}
+
+.action-btn.secondary:hover {
+  background: #5a6269;
+}
+
+.checkbox-row {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #495057;
+}
+
+.checkbox-inline input {
+  margin: 0;
+}
+
+.preview-area {
+  position: relative;
+  background: #f1f3f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-wrapper {
+  position: relative;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  max-width: 95%;
+  max-height: 90%;
+}
+
+.preview-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+.preview-svg rect {
+  fill: #ffffff;
+}
+
+.preview-area .canvas-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+}
+
+.preview-area::after {
+  content: "";
+  position: absolute;
+  inset: 24px;
+  border: 1px dashed rgba(52, 152, 219, 0.3);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+#status {
+  display: none;
+}
+
+#status.show {
+  display: block;
+}
+
+.svg-sandbox {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  left: -9999px;
+  top: -9999px;
+}
+
+#travelGroup {
+  stroke-dasharray: 4 2;
+}
+
+#drawGroup {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

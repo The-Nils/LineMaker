@@ -1886,52 +1886,97 @@ class PipeMazeGenerator {
     return pathsContent;
   }
 
-  generateCombinedGCode() {
-    let gcode = this.generateGCodeHeader();
+  createGcodeGenerator() {
+    return new GCodeGenerator({
+      toolName: "LineMaker - Pipe Maze",
+      canvasWidth: this.settings.canvasWidth,
+      canvasHeight: this.settings.canvasHeight,
+      feedRate: this.settings.feedRate,
+      penDownZ: this.settings.penDownZ,
+      penUpZ: this.settings.penUpZ,
+      preventZhop: this.settings.preventZhop,
+      footerLines: [
+        () => "; End of program",
+        "G28 X Y ; Home X and Y",
+        "M84 ; Disable motors",
+      ],
+    });
+  }
 
-    this.layers.forEach((layer) => {
-      if (layer.visible) {
-        gcode += `\n; Layer: ${layer.name}\n`;
-        gcode += this.generateLayerGCodePaths(layer);
-      }
+  generateCombinedGCode() {
+    if (!this.maze) return "";
+
+    const generator = this.createGcodeGenerator();
+    generator.beginProgram({
+      toolName: "LineMaker - Pipe Maze",
+      canvasWidth: this.settings.canvasWidth,
+      canvasHeight: this.settings.canvasHeight,
+      headerLines: [
+        `Grid size: ${this.settings.gridSize}x${this.settings.gridSize}`,
+        `Feed rate: ${this.settings.feedRate} mm/min`,
+      ],
     });
 
-    gcode += this.generateGCodeFooter();
-    return gcode;
+    this.layers.forEach((layer) => {
+      if (!layer.visible) return;
+      const layerLines = this.collectLayerLineSegments(layer);
+      if (layerLines.length === 0) return;
+      generator.addComment(`Layer: ${layer.name}`);
+      generator.renderLineSegments(layerLines);
+    });
+
+    generator.finishProgram();
+    return generator.toString();
   }
 
   generateLayerGCode(layer) {
-    let gcode = this.generateGCodeHeader();
-    gcode += `\n; Layer: ${layer.name}\n`;
-    gcode += this.generateLayerGCodePaths(layer);
-    gcode += this.generateGCodeFooter();
-    return gcode;
-  }
-
-  generateLayerGCodePaths(_layer) {
     if (!this.maze) return "";
 
-    // Collect all line segments using hatchmaker approach
+    const generator = this.createGcodeGenerator();
+    generator.beginProgram({
+      toolName: "LineMaker - Pipe Maze",
+      canvasWidth: this.settings.canvasWidth,
+      canvasHeight: this.settings.canvasHeight,
+      headerLines: [`Layer export: ${layer.name}`],
+    });
+
+    const layerLines = this.collectLayerLineSegments(layer);
+    if (layerLines.length > 0) {
+      generator.addComment(`Layer: ${layer.name}`);
+      generator.renderLineSegments(layerLines);
+    }
+
+    generator.finishProgram();
+    return generator.toString();
+  }
+
+  collectLayerLineSegments(_layer) {
+    if (!this.maze) return [];
+
     const gcodeLines = [];
     const size = this.settings.gridSize;
     const cellSize = (this.settings.canvasWidth * this.pixelsPerMm) / size;
 
-    // Process each cell to extract line segments
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const cell = this.maze[y][x];
         if (cell.visited && cell.type) {
           const pipeSection = this.pipeSections[cell.type];
           if (pipeSection) {
-            const cellLines = this.extractLinesFromCell(pipeSection, x, y, cell, cellSize);
+            const cellLines = this.extractLinesFromCell(
+              pipeSection,
+              x,
+              y,
+              cell,
+              cellSize
+            );
             gcodeLines.push(...cellLines);
           }
         }
       }
     }
 
-    // Convert line segments to G-code using hatchmaker approach
-    return this.linesToGCode(gcodeLines);
+    return gcodeLines;
   }
 
   extractLinesFromCell(pipeSection, gridX, gridY, cell, cellSize) {
@@ -1939,14 +1984,17 @@ class PipeMazeGenerator {
     
     // Use the EXACT same approach as SVG generation
     const rotation = this.calculatePipeRotation(cell.connections, cell.type);
-    const scale = cellSize / this.pixelsPerMm / 200;  // Convert to mm scale directly
-    const translateX = gridX * cellSize / this.pixelsPerMm;  // Convert to mm
-    const translateY = gridY * cellSize / this.pixelsPerMm;  // Convert to mm
+    const cellSizePx = cellSize;
+    const scale = cellSizePx / 200;
+    const translateXPx = gridX * cellSizePx;
+    const translateYPx = gridY * cellSizePx;
 
     // Debug logging for NE segments
     if (cell.type === "NE") {
       console.log(`NE segment at ${gridX},${gridY}: connections=${cell.connections.join(",")}, rotation=${rotation}`);
-      console.log(`Scale: ${scale}, translateX: ${translateX}, translateY: ${translateY}`);
+      console.log(
+        `Scale(px/unit): ${scale.toFixed(6)}, translate(px): X=${translateXPx.toFixed(2)}, Y=${translateYPx.toFixed(2)}`
+      );
     }
 
     // Parse SVG path into line segments
@@ -1959,7 +2007,13 @@ class PipeMazeGenerator {
     paths.forEach(path => {
       if (path.length >= 2) {
         // Apply the SAME transform as SVG: translate(x,y) scale(s) rotate(r, 100, 100)
-        const transformedPoints = this.applySVGTransform(path, translateX, translateY, scale, rotation);
+        const transformedPoints = this.applySVGTransform(
+          path,
+          translateXPx,
+          translateYPx,
+          scale,
+          rotation
+        );
         
         if (cell.type === "NE") {
           console.log(`NE transformed points:`, transformedPoints);
@@ -1972,9 +2026,9 @@ class PipeMazeGenerator {
           
           // G-code coordinates (flip Y axis)
           const gcodeX1 = p1.x;
-          const gcodeY1 = this.settings.canvasHeight - p1.y;
+          const gcodeY1 = p1.y;
           const gcodeX2 = p2.x;
-          const gcodeY2 = this.settings.canvasHeight - p2.y;
+          const gcodeY2 = p2.y;
           
           if (cell.type === "NE") {
             console.log(`NE G-code line: (${gcodeX1.toFixed(2)},${gcodeY1.toFixed(2)}) -> (${gcodeX2.toFixed(2)},${gcodeY2.toFixed(2)})`);
@@ -1993,146 +2047,40 @@ class PipeMazeGenerator {
     return lines;
   }
 
-  applySVGTransform(points, translateX, translateY, scale, rotation) {
-    // Apply SVG transform exactly: translate(tx,ty) scale(s) rotate(r, 100, 100)
-    const rotationRad = (rotation * Math.PI) / 180;
-    const cos = Math.cos(rotationRad);
-    const sin = Math.sin(rotationRad);
-    
-    return points.map(point => {
-      // Step 1: Scale around origin
-      let x = point.x * scale;
-      let y = point.y * scale;
-      
-      // Step 2: Rotate around center point (100, 100) scaled
-      const centerX = 100 * scale;
-      const centerY = 100 * scale;
-      
-      const dx = x - centerX;
-      const dy = y - centerY;
-      
-      const rotatedX = centerX + dx * cos - dy * sin;
-      const rotatedY = centerY + dx * sin + dy * cos;
-      
-      // Step 3: Translate
+  applySVGTransform(points, translateXPx, translateYPx, scale, rotation) {
+    // Apply the exact SVG transform sequence in pixel space, then convert to millimeters
+    const angle = (rotation * Math.PI) / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const pixelsPerMm = this.pixelsPerMm;
+    const canvasHeight = this.settings.canvasHeight;
+
+    return points.map((point) => {
+      const offsetX = point.x - 100;
+      const offsetY = point.y - 100;
+
+      const rotatedX = 100 + offsetX * cos - offsetY * sin;
+      const rotatedY = 100 + offsetX * sin + offsetY * cos;
+
+      const scaledX = rotatedX * scale;
+      const scaledY = rotatedY * scale;
+
+      const translatedX = scaledX + translateXPx;
+      const translatedY = scaledY + translateYPx;
+
       return {
-        x: rotatedX + translateX,
-        y: rotatedY + translateY
+        x: translatedX / pixelsPerMm,
+        y: canvasHeight - translatedY / pixelsPerMm,
       };
     });
   }
 
-  linesToGCode(lines) {
-    if (lines.length === 0) return "";
-
-    const feedRate = this.settings.feedRate;
-    const penDownZ = this.settings.penDownZ;
-    const penUpZ = this.settings.penUpZ;
-    const preventZhop = this.settings.preventZhop;
-
-    let gcode = "";
-    let currentX = 0;
-    let currentY = 0;
-    let penIsDown = false;
-
-    // Optimize path to minimize travel distance
-    const optimizedLines = this.optimizeLinePath(lines, currentX, currentY);
-
-    optimizedLines.forEach((line) => {
-      const { x1, y1, x2, y2 } = line;
-
-      // Check if we need to move to start position
-      const moveDistance = Math.sqrt((currentX - x1) ** 2 + (currentY - y1) ** 2);
-      
-      if (moveDistance > 0.001) {
-        // Decide whether to lift pen based on move distance
-        if (penIsDown && moveDistance > preventZhop) {
-          gcode += `G0 Z${penUpZ.toFixed(3)} ; Pen up\n`;
-          penIsDown = false;
-        }
-        
-        // Move to start position
-        const moveCommand = penIsDown ? "G1" : "G0";
-        gcode += `${moveCommand} X${x1.toFixed(3)} Y${y1.toFixed(3)} ; ${penIsDown ? "Drag" : "Move"} to start\n`;
-        currentX = x1;
-        currentY = y1;
-      }
-
-      // Pen down and draw line
-      if (!penIsDown) {
-        gcode += `G1 Z${penDownZ.toFixed(3)} ; Pen down\n`;
-        penIsDown = true;
-      }
-      
-      gcode += `G1 X${x2.toFixed(3)} Y${y2.toFixed(3)} ; Draw line\n`;
-      currentX = x2;
-      currentY = y2;
-    });
-
-    return gcode;
-  }
-
-  optimizeLinePath(lines, startX, startY) {
-    if (lines.length === 0) return [];
-    
-    const optimized = [];
-    const remaining = [...lines];
-    let currentX = startX;
-    let currentY = startY;
-
-    while (remaining.length > 0) {
-      let bestIndex = 0;
-      let bestDistance = Infinity;
-      let bestReversed = false;
-
-      // Find closest line start or end point
-      for (let i = 0; i < remaining.length; i++) {
-        const line = remaining[i];
-        
-        // Distance to start of line
-        const distToStart = Math.sqrt((currentX - line.x1) ** 2 + (currentY - line.y1) ** 2);
-        if (distToStart < bestDistance) {
-          bestDistance = distToStart;
-          bestIndex = i;
-          bestReversed = false;
-        }
-        
-        // Distance to end of line (reversed)
-        const distToEnd = Math.sqrt((currentX - line.x2) ** 2 + (currentY - line.y2) ** 2);
-        if (distToEnd < bestDistance) {
-          bestDistance = distToEnd;
-          bestIndex = i;
-          bestReversed = true;
-        }
-      }
-
-      // Add best line to optimized path
-      const bestLine = remaining.splice(bestIndex, 1)[0];
-      if (bestReversed) {
-        // Reverse the line
-        optimized.push({
-          x1: bestLine.x2,
-          y1: bestLine.y2,
-          x2: bestLine.x1,
-          y2: bestLine.y1
-        });
-        currentX = bestLine.x1;
-        currentY = bestLine.y1;
-      } else {
-        optimized.push(bestLine);
-        currentX = bestLine.x2;
-        currentY = bestLine.y2;
-      }
-    }
-
-    return optimized;
-  }
-
   convertPipeSectionToSegments(pipeSection, gridX, gridY, cell, cellSize) {
     const rotation = this.calculatePipeRotation(cell.connections, cell.type);
-    const scale = cellSize / 200;
-    const translateX = gridX * cellSize;
-    const translateY = gridY * cellSize;
+    const cellSizePx = cellSize;
+    const scale = cellSizePx / 200;
+    const translateXPx = gridX * cellSizePx;
+    const translateYPx = gridY * cellSizePx;
 
     console.log(`Converting pipe section at ${gridX},${gridY}: scale=${scale}, rotation=${rotation}`);
 
@@ -2146,8 +2094,8 @@ class PipeMazeGenerator {
       console.log(`Processing path ${pathIndex} with ${path.length} points`);
       const transformedPath = this.transformPath(
         path,
-        translateX,
-        translateY,
+        translateXPx,
+        translateYPx,
         scale,
         rotation
       );
@@ -2270,33 +2218,8 @@ class PipeMazeGenerator {
     return paths;
   }
 
-  transformPath(path, translateX, translateY, scale, rotation) {
-    const rotationRad = (rotation * Math.PI) / 180;
-    const centerX = 100;
-    const centerY = 100;
-
-    return path.map((point) => {
-      // Scale
-      let x = point.x * scale;
-      let y = point.y * scale;
-
-      // Rotate around center
-      const cosR = Math.cos(rotationRad);
-      const sinR = Math.sin(rotationRad);
-      const centerXScaled = centerX * scale;
-      const centerYScaled = centerY * scale;
-
-      const rotatedX =
-        centerXScaled + (x - centerXScaled) * cosR - (y - centerYScaled) * sinR;
-      const rotatedY =
-        centerYScaled + (x - centerXScaled) * sinR + (y - centerYScaled) * cosR;
-
-      // Translate
-      return {
-        x: rotatedX + translateX,
-        y: this.settings.canvasHeight - (rotatedY + translateY), // Flip Y for G-code
-      };
-    });
+  transformPath(path, translateXPx, translateYPx, scale, rotation) {
+    return this.applySVGTransform(path, translateXPx, translateYPx, scale, rotation);
   }
 
   clipPathToCanvas(path) {
@@ -2458,25 +2381,6 @@ class PipeMazeGenerator {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  generateGCodeHeader() {
-    return `; Generated by LineMaker - Pipe Maze
-; Canvas size: ${this.settings.canvasWidth}mm x ${this.settings.canvasHeight}mm
-; Grid size: ${this.settings.gridSize}x${this.settings.gridSize}
-G21 ; Set units to millimeters
-G90 ; Use absolute coordinates
-G28 ; Home all axes
-G1 Z${this.settings.penUpZ} F${this.settings.feedRate} ; Lift pen
-`;
-  }
-
-  generateGCodeFooter() {
-    return `
-; End of program
-G1 Z${this.settings.penUpZ} F${this.settings.feedRate} ; Lift pen
-G28 X Y ; Home X and Y
-M84 ; Disable motors
-`;
-  }
 
   downloadFile(filename, content, mimeType) {
     const blob = new Blob([content], { type: mimeType });

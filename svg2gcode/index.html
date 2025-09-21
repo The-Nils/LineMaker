@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SVG to G-code - LineMaker</title>
+    <link rel="stylesheet" href="../tool-styles.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="main-layout">
+        <div class="sidebar">
+          <div class="header-section">
+            <div class="header-row">
+              <a href="../index.html" class="back-button" title="Back to tools">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M19 12H5" />
+                  <path d="M12 19l-7-7 7-7" />
+                </svg>
+              </a>
+              <h2 class="tool-title">SVG to G-code</h2>
+            </div>
+            <p class="tool-subtitle">
+              Convert vector artwork to pen-plotter ready toolpaths with live preview.
+            </p>
+            <div class="image-drop-zone" id="svgDropZone">
+              <div class="drop-zone-content" id="dropZoneContent">
+                <svg
+                  width="32"
+                  height="32"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                <p>Drop SVG here or click to upload</p>
+                <small id="fileNameDisplay">No file loaded</small>
+              </div>
+              <input type="file" id="svgInput" accept=".svg" hidden />
+            </div>
+            <div class="button-row">
+              <button id="downloadGcodeBtn" class="action-btn" disabled>
+                Download G-code
+              </button>
+              <button id="downloadSvgBtn" class="action-btn secondary" disabled>
+                Download Preview SVG
+              </button>
+            </div>
+          </div>
+
+          <div class="scrollable-controls">
+            <div class="control-group">
+              <h3>Units &amp; Scaling</h3>
+              <div class="input-row">
+                <label for="mmPerUnitInput">mm per SVG unit</label>
+                <input
+                  type="number"
+                  id="mmPerUnitInput"
+                  min="0.001"
+                  step="0.001"
+                  value="1"
+                />
+              </div>
+              <div class="input-row">
+                <label for="marginInput">Margin</label>
+                <input
+                  type="number"
+                  id="marginInput"
+                  min="0"
+                  step="0.1"
+                  value="0"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="offsetXInput">Offset X</label>
+                <input
+                  type="number"
+                  id="offsetXInput"
+                  step="0.1"
+                  value="0"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="offsetYInput">Offset Y</label>
+                <input
+                  type="number"
+                  id="offsetYInput"
+                  step="0.1"
+                  value="0"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row checkbox-row">
+                <label>Alignment</label>
+                <label class="checkbox-inline">
+                  <input type="checkbox" id="autoOriginInput" checked />
+                  <span>Auto align to origin</span>
+                </label>
+                <label class="checkbox-inline">
+                  <input type="checkbox" id="flipYInput" />
+                  <span>Flip Y axis</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <h3>Path Sampling</h3>
+              <div class="input-row">
+                <label for="segmentLengthInput">Max segment length</label>
+                <input
+                  type="number"
+                  id="segmentLengthInput"
+                  min="0.1"
+                  step="0.1"
+                  value="1"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="circleSegmentsInput">Circle segments</label>
+                <input
+                  type="number"
+                  id="circleSegmentsInput"
+                  min="8"
+                  max="720"
+                  step="1"
+                  value="72"
+                />
+              </div>
+              <div class="input-row checkbox-row">
+                <label>Toolpath</label>
+                <label class="checkbox-inline">
+                  <input type="checkbox" id="optimizeInput" checked />
+                  <span>Optimize order</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <h3>G-code</h3>
+              <div class="input-row">
+                <label for="feedRateInput">Feed rate</label>
+                <input
+                  type="number"
+                  id="feedRateInput"
+                  min="1"
+                  step="1"
+                  value="1500"
+                />
+                <span class="unit-label">mm/min</span>
+              </div>
+              <div class="input-row">
+                <label for="travelRateInput">Travel feed</label>
+                <input
+                  type="number"
+                  id="travelRateInput"
+                  min="1"
+                  step="1"
+                  value="3000"
+                />
+                <span class="unit-label">mm/min</span>
+              </div>
+              <div class="input-row">
+                <label for="penDownInput">Pen down Z</label>
+                <input
+                  type="number"
+                  id="penDownInput"
+                  step="0.1"
+                  value="0"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="penUpInput">Pen up Z</label>
+                <input
+                  type="number"
+                  id="penUpInput"
+                  step="0.1"
+                  value="2"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="preventZhopInput">Skip lift under</label>
+                <input
+                  type="number"
+                  id="preventZhopInput"
+                  min="0"
+                  step="0.1"
+                  value="3"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="startXInput">Start X</label>
+                <input
+                  type="number"
+                  id="startXInput"
+                  step="0.1"
+                  value="0"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+              <div class="input-row">
+                <label for="startYInput">Start Y</label>
+                <input
+                  type="number"
+                  id="startYInput"
+                  step="0.1"
+                  value="0"
+                />
+                <span class="unit-label">mm</span>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <h3>Statistics</h3>
+              <div class="stats-display">
+                <div class="stat-item">
+                  <label>Paths</label>
+                  <span id="pathCount">0</span>
+                </div>
+                <div class="stat-item">
+                  <label>Segments</label>
+                  <span id="segmentCount">0</span>
+                </div>
+                <div class="stat-item">
+                  <label>Draw length</label>
+                  <span id="drawLength">0 mm</span>
+                </div>
+                <div class="stat-item">
+                  <label>Travel length</label>
+                  <span id="travelLength">0 mm</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="preview-area">
+          <div class="canvas-controls">
+            <button id="fitToContentBtn" class="canvas-control-btn" title="Fit to content">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+              </svg>
+            </button>
+            <button id="resetViewBtn" class="canvas-control-btn" title="Reset view">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M1 4v6h6M23 20v-6h-6" />
+                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
+              </svg>
+            </button>
+          </div>
+          <div class="preview-wrapper">
+            <svg
+              id="previewSvg"
+              class="preview-svg"
+              viewBox="0 0 200 200"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <rect width="100%" height="100%" fill="#ffffff" />
+              <g id="travelGroup" stroke="#ff6b6b" stroke-width="0.4" fill="none"></g>
+              <g id="drawGroup" stroke="#2ecc71" stroke-width="0.4" fill="none"></g>
+              <g id="penUpGroup" fill="none"></g>
+              <g id="penDownGroup" fill="none"></g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status-notification" role="status"></div>
+    <div id="svgSandbox" class="svg-sandbox" aria-hidden="true"></div>
+
+    <script src="../interactiveCanvas.js"></script>
+    <script src="../gcodeGenerator.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>
