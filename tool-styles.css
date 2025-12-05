@@ -521,6 +521,33 @@ input[type="number"] {
     background: #f39c12;
 }
 
+.status-notification .status-message {
+    display: block;
+    font-weight: 500;
+    margin: 0;
+}
+
+.status-progress {
+    display: none;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.status-progress-bar {
+    width: 0;
+    height: 100%;
+    background: #ffffff;
+    transition: width 0.15s ease-out;
+}
+
+.status-notification.processing .status-progress {
+    display: block;
+    margin-top: 8px;
+}
+
 @media (max-width: 768px) {
     .main-layout {
         flex-direction: column;

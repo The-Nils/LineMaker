@@ -1,3 +1,7 @@
+const PROCESSING_SLICE_MS = 12;
+const PROCESSING_TOTAL_LIMIT_MS = Infinity;
+const YIELD_CHECK_INTERVAL = 64;
+
 class SvgToGcodeTool {
   constructor() {
     this.dropZone = document.getElementById("svgDropZone");
@@ -39,8 +43,184 @@ class SvgToGcodeTool {
     this.debounceDelay = 200;
     this.statusTimer = null;
 
+    this.currentProcessingToken = null;
+    this.statusMessageEl = null;
+    this.statusProgressEl = null;
+    this.statusProgressBar = null;
+    this.optimizationNotice = "";
+
+    this.createStatusElements();
+
     this.bindEvents();
     this.updateButtons();
+  }
+
+  showProcessingStatus(message, percent = 0) {
+    if (!this.status) return;
+
+    const clamped = Math.max(0, Math.min(100, Number(percent) || 0));
+    const text = message || "Processing…";
+
+    if (this.statusMessageEl) {
+      this.statusMessageEl.textContent = text;
+    } else {
+      this.status.textContent = text;
+    }
+
+    if (this.statusProgressEl && this.statusProgressBar) {
+      this.statusProgressEl.style.display = "block";
+      this.statusProgressBar.style.width = `${clamped}%`;
+    }
+
+    this.status.className = "status-notification show processing";
+    clearTimeout(this.statusTimer);
+    this.statusTimer = null;
+  }
+
+  setProcessingProgress(token, percent, message) {
+    if (!token || token.cancelled || this.currentProcessingToken !== token) return;
+
+    if (Number.isFinite(percent)) {
+      token.progressPercent = Math.max(0, Math.min(100, percent));
+    }
+    if (typeof message === "string" && message.length) {
+      token.progressMessage = message;
+    }
+
+    this.showProcessingStatus(
+      token.progressMessage || "Processing…",
+      token.progressPercent ?? 0
+    );
+  }
+
+  beginProcessing(initialMessage = "Processing…") {
+    if (this.currentProcessingToken) {
+      this.currentProcessingToken.cancelled = true;
+    }
+
+    const token = {
+      cancelled: false,
+      startTime: performance.now(),
+      lastYield: performance.now(),
+      progressPercent: 0,
+      progressMessage: initialMessage,
+    };
+
+    this.currentProcessingToken = token;
+    this.optimizationNotice = "";
+    this.setProcessingProgress(token, 0, initialMessage);
+
+    return token;
+  }
+
+  endProcessing(token) {
+    if (this.currentProcessingToken === token) {
+      this.currentProcessingToken = null;
+    }
+  }
+
+  completeProcessing(token, message = "Done.", type = "complete") {
+    if (!token || token.cancelled || this.currentProcessingToken !== token) return;
+    this.currentProcessingToken = null;
+    this.showStatus(message, type);
+  }
+
+  failProcessing(token, message) {
+    if (!token) return;
+    if (token.cancelled && this.currentProcessingToken !== token) return;
+    if (this.currentProcessingToken === token) {
+      this.currentProcessingToken = null;
+    }
+    this.showStatus(message, "error");
+  }
+
+  async yieldProcessing(token, force = false) {
+    if (!token) return;
+
+    if (token.cancelled || this.currentProcessingToken !== token) {
+      throw this.createProcessingCancelledError();
+    }
+
+    const now = performance.now();
+    const elapsed = now - token.startTime;
+    if (elapsed > PROCESSING_TOTAL_LIMIT_MS) {
+      throw this.createProcessingTimeoutError();
+    }
+
+    if (!force && now - token.lastYield < PROCESSING_SLICE_MS) {
+      return;
+    }
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const resumed = performance.now();
+    token.lastYield = resumed;
+
+    if (token.cancelled || this.currentProcessingToken !== token) {
+      throw this.createProcessingCancelledError();
+    }
+
+    if (resumed - token.startTime > PROCESSING_TOTAL_LIMIT_MS) {
+      throw this.createProcessingTimeoutError();
+    }
+  }
+
+  createProcessingCancelledError() {
+    const error = new Error("Processing cancelled");
+    error.name = "ProcessingCancelled";
+    error.isProcessingCancelled = true;
+    return error;
+  }
+
+  createProcessingTimeoutError() {
+    const error = new Error("Processing time limit reached");
+    error.name = "ProcessingTimeout";
+    error.isProcessingTimeout = true;
+    return error;
+  }
+
+  isProcessingCancellation(error) {
+    return Boolean(error && (error.isProcessingCancelled || error.name === "ProcessingCancelled"));
+  }
+
+  isProcessingTimeout(error) {
+    return Boolean(error && (error.isProcessingTimeout || error.name === "ProcessingTimeout"));
+  }
+
+  assertProcessingActive(token) {
+    if (!token || token.cancelled || this.currentProcessingToken !== token) {
+      throw this.createProcessingCancelledError();
+    }
+  }
+
+  createStageProgressUpdater(token, offset, weight, label) {
+    return (fraction) => {
+      const clampedFraction = Math.max(0, Math.min(1, Number(fraction) || 0));
+      const overallProgress = offset + clampedFraction * weight;
+      const overallPercent = overallProgress * 100;
+      const stagePercent = Math.round(clampedFraction * 100);
+      const message = `Processing ${Math.round(overallPercent)}% — ${label}… ${stagePercent}%`;
+      this.setProcessingProgress(token, overallPercent, message);
+    };
+  }
+
+  createStatusElements() {
+    if (!this.status) return;
+
+    this.status.innerHTML = "";
+
+    this.statusMessageEl = document.createElement("div");
+    this.statusMessageEl.className = "status-message";
+    this.status.appendChild(this.statusMessageEl);
+
+    this.statusProgressEl = document.createElement("div");
+    this.statusProgressEl.className = "status-progress";
+    this.statusProgressBar = document.createElement("div");
+    this.statusProgressBar.className = "status-progress-bar";
+    this.statusProgressEl.appendChild(this.statusProgressBar);
+    this.status.appendChild(this.statusProgressEl);
+
+    this.statusProgressEl.style.display = "none";
   }
 
   bindEvents() {
@@ -172,26 +352,93 @@ class SvgToGcodeTool {
     this.debounceTimer = setTimeout(() => this.recompute(), this.debounceDelay);
   }
 
-  recompute() {
+  async recompute() {
     if (!this.sourceSvgMarkup) return;
 
+    const token = this.beginProcessing("Parsing SVG…");
+    const steps = [
+      { weight: 0.35, label: "Parsing SVG" },
+      { weight: 0.15, label: "Transforming geometry" },
+      { weight: 0.2, label: "Building segments" },
+      { weight: 0.2, label: "Generating toolpath" },
+      { weight: 0.1, label: "Rendering preview" },
+    ];
+
+    let offset = 0;
+
     try {
-      const { polylines, bounds } = this.extractGeometry();
+      const extractProgress = this.createStageProgressUpdater(
+        token,
+        offset,
+        steps[0].weight,
+        steps[0].label
+      );
+      const { polylines, bounds } = await this.extractGeometry(
+        token,
+        extractProgress
+      );
+      this.assertProcessingActive(token);
+      extractProgress(1);
       this.polylines = polylines;
+      offset += steps[0].weight;
 
       if (polylines.length === 0) {
         this.resetPreview();
-        this.showStatus("No drawable elements found in SVG.", "error");
+        this.failProcessing(token, "No drawable elements found in SVG.");
+        this.updateButtons();
         return;
       }
 
-      const transformed = this.transformPolylines(polylines, bounds);
-      const lines = this.polylinesToSegments(transformed.polylines);
-      this.lines = lines;
+      const transformProgress = this.createStageProgressUpdater(
+        token,
+        offset,
+        steps[1].weight,
+        steps[1].label
+      );
+      const transformed = await this.transformPolylines(
+        token,
+        polylines,
+        bounds,
+        transformProgress
+      );
+      this.assertProcessingActive(token);
+      transformProgress(1);
+      offset += steps[1].weight;
 
-      const toolpath = this.generateToolpath(lines, transformed.bounds);
+      const segmentProgress = this.createStageProgressUpdater(
+        token,
+        offset,
+        steps[2].weight,
+        steps[2].label
+      );
+      const lines = await this.polylinesToSegments(
+        token,
+        transformed.polylines,
+        segmentProgress
+      );
+      this.assertProcessingActive(token);
+      segmentProgress(1);
+      this.lines = lines;
+      offset += steps[2].weight;
+
+      const toolpathProgress = this.createStageProgressUpdater(
+        token,
+        offset,
+        steps[3].weight,
+        steps[3].label
+      );
+      const toolpath = await this.generateToolpath(
+        token,
+        lines,
+        transformed.bounds,
+        toolpathProgress
+      );
+      this.assertProcessingActive(token);
+      toolpathProgress(1);
+      offset += steps[3].weight;
 
       this.generatedGcode = toolpath.gcode;
+      await this.yieldProcessing(token);
       this.previewSvgMarkup = this.buildPreviewSvg(
         transformed.polylines,
         transformed.bounds,
@@ -199,19 +446,51 @@ class SvgToGcodeTool {
         toolpath.penUpEvents
       );
 
-      this.renderPreview(toolpath, transformed.bounds);
+      const renderProgress = this.createStageProgressUpdater(
+        token,
+        offset,
+        steps[4].weight,
+        steps[4].label
+      );
+      await this.renderPreview(token, toolpath, transformed.bounds, renderProgress);
+      renderProgress(1);
+      offset += steps[4].weight;
+
+      this.assertProcessingActive(token);
       this.updateStats(transformed.polylines.length, lines.length, toolpath);
-      this.showStatus("Toolpath updated.", "complete");
       this.updateButtons();
+
+      await this.yieldProcessing(token, true);
       this.interactiveCanvas.fitToContent();
+
+      const finalMessage = this.optimizationNotice
+        ? `Toolpath updated. ${this.optimizationNotice}`
+        : "Toolpath updated.";
+      this.completeProcessing(token, finalMessage, "complete");
     } catch (error) {
+      if (this.isProcessingCancellation(error)) {
+        return;
+      }
+
       console.error(error);
-      this.showStatus("Failed to generate toolpath.", "error");
       this.resetPreview();
+      this.updateButtons();
+
+      if (this.isProcessingTimeout(error)) {
+        this.failProcessing(
+          token,
+          "Stopped: processing took too long. Try reducing detail."
+        );
+        return;
+      }
+
+      this.failProcessing(token, "Failed to generate toolpath.");
+    } finally {
+      this.endProcessing(token);
     }
   }
 
-  extractGeometry() {
+  async extractGeometry(token, onProgress) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(this.sourceSvgMarkup, "image/svg+xml");
     const parseError = doc.querySelector("parsererror");
@@ -262,55 +541,87 @@ class SvgToGcodeTool {
       Math.min(720, Math.round(this.getNumber("circleSegmentsInput", 72)))
     );
 
-    const elements = svg.querySelectorAll(
-      "path, line, polyline, polygon, rect, circle, ellipse"
+    const elements = Array.from(
+      svg.querySelectorAll("path, line, polyline, polygon, rect, circle, ellipse")
     );
 
     const polylines = [];
+    const total = Math.max(1, elements.length);
+    let processed = 0;
 
-    elements.forEach((element) => {
-      const tag = element.tagName.toLowerCase();
-      let curves = [];
-      switch (tag) {
-        case "path":
-          curves = this.convertPath(element, segmentLengthSvg);
-          break;
-        case "line":
-          curves = this.convertLine(element);
-          break;
-        case "polyline":
-          curves = this.convertPolyline(element, false);
-          break;
-        case "polygon":
-          curves = this.convertPolyline(element, true);
-          break;
-        case "rect":
-          curves = this.convertRect(element);
-          break;
-        case "circle":
-          curves = this.convertCircle(element, circleSegments);
-          break;
-        case "ellipse":
-          curves = this.convertEllipse(element, circleSegments);
-          break;
-        default:
-          curves = [];
+    const report = () => {
+      if (typeof onProgress === "function") {
+        const ratio = Math.min(1, Math.max(0, processed / total));
+        onProgress(ratio);
       }
-      curves.forEach((curve) => {
-        if (curve.length >= 2) {
-          polylines.push(curve);
+    };
+
+    report();
+
+    try {
+      for (const element of elements) {
+        const tag = element.tagName.toLowerCase();
+        let curves = [];
+        switch (tag) {
+          case "path":
+            curves = await this.convertPath(token, element, segmentLengthSvg);
+            break;
+          case "line":
+            curves = this.convertLine(element);
+            break;
+          case "polyline":
+            curves = this.convertPolyline(element, false);
+            break;
+          case "polygon":
+            curves = this.convertPolyline(element, true);
+            break;
+          case "rect":
+            curves = this.convertRect(element);
+            break;
+          case "circle":
+            curves = this.convertCircle(element, circleSegments);
+            break;
+          case "ellipse":
+            curves = this.convertEllipse(element, circleSegments);
+            break;
+          default:
+            curves = [];
         }
-      });
-    });
 
-    this.sandbox.innerHTML = "";
+        curves.forEach((curve) => {
+          if (curve.length >= 2) {
+            polylines.push(curve);
+          }
+        });
 
+        processed += 1;
+        if (processed % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+        }
+        report();
+      }
+    } finally {
+      this.sandbox.innerHTML = "";
+    }
+
+    processed = total;
+    report();
+
+    this.assertProcessingActive(token);
     const bounds = this.computeBounds(polylines);
 
     return { polylines, bounds };
   }
 
-  transformPolylines(polylines, originalBounds) {
+  async transformPolylines(token, polylines, originalBounds, onProgress) {
+    if (!Array.isArray(polylines) || polylines.length === 0) {
+      return {
+        polylines: [],
+        bounds: this.computeBounds([]),
+        originalBounds,
+      };
+    }
+
     const mmPerUnit = Math.max(this.getNumber("mmPerUnitInput", 1), 0.0001);
     const autoOrigin = document.getElementById("autoOriginInput").checked;
     const flipY = document.getElementById("flipYInput").checked;
@@ -318,12 +629,40 @@ class SvgToGcodeTool {
     const offsetX = this.getNumber("offsetXInput", 0);
     const offsetY = this.getNumber("offsetYInput", 0);
 
-    const scaled = polylines.map((polyline) =>
-      polyline.map((point) => ({
-        x: point.x * mmPerUnit,
-        y: (flipY ? -point.y : point.y) * mmPerUnit,
-      }))
+    const totalPoints = polylines.reduce(
+      (sum, polyline) => sum + (Array.isArray(polyline) ? polyline.length : 0),
+      0
     );
+    const totalUnits = Math.max(1, totalPoints * 2);
+    let processedUnits = 0;
+
+    const report = () => {
+      if (typeof onProgress === "function") {
+        onProgress(Math.min(1, processedUnits / totalUnits));
+      }
+    };
+
+    report();
+
+    const scaled = [];
+    for (const polyline of polylines) {
+      const scaledPolyline = [];
+      for (const point of polyline) {
+        if (!point) continue;
+        scaledPolyline.push({
+          x: point.x * mmPerUnit,
+          y: (flipY ? -point.y : point.y) * mmPerUnit,
+        });
+        processedUnits += 1;
+        if (processedUnits % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
+      }
+      scaled.push(scaledPolyline);
+    }
+
+    report();
 
     const bounds = this.computeBounds(scaled);
 
@@ -338,13 +677,27 @@ class SvgToGcodeTool {
       shiftY += margin;
     }
 
-    const transformed = scaled.map((polyline) =>
-      polyline.map((point) => ({
-        x: point.x + shiftX,
-        y: point.y + shiftY,
-      }))
-    );
+    const transformed = [];
+    for (const polyline of scaled) {
+      const transformedPolyline = [];
+      for (const point of polyline) {
+        transformedPolyline.push({
+          x: point.x + shiftX,
+          y: point.y + shiftY,
+        });
+        processedUnits += 1;
+        if (processedUnits % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
+      }
+      transformed.push(transformedPolyline);
+    }
 
+    processedUnits = totalUnits;
+    report();
+
+    this.assertProcessingActive(token);
     const transformedBounds = this.computeBounds(transformed);
 
     return {
@@ -354,9 +707,31 @@ class SvgToGcodeTool {
     };
   }
 
-  polylinesToSegments(polylines) {
+  async polylinesToSegments(token, polylines, onProgress) {
     const segments = [];
-    polylines.forEach((polyline, pathIndex) => {
+    if (!Array.isArray(polylines) || polylines.length === 0) {
+      if (typeof onProgress === "function") onProgress(1);
+      return segments;
+    }
+
+    const total = polylines.reduce(
+      (sum, polyline) => sum + Math.max(0, polyline.length - 1),
+      0
+    );
+    const cappedTotal = Math.max(1, total);
+    let processed = 0;
+
+    const report = () => {
+      if (typeof onProgress === "function") {
+        onProgress(Math.min(1, processed / cappedTotal));
+      }
+    };
+
+    report();
+
+    for (let pathIndex = 0; pathIndex < polylines.length; pathIndex++) {
+      const polyline = polylines[pathIndex];
+      if (!Array.isArray(polyline)) continue;
       for (let i = 1; i < polyline.length; i++) {
         const prev = polyline[i - 1];
         const current = polyline[i];
@@ -369,13 +744,27 @@ class SvgToGcodeTool {
           y2: current.y,
           pathIndex,
         });
+        processed += 1;
+        if (processed % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
       }
-    });
+    }
+
+    processed = cappedTotal;
+    report();
+
+    this.assertProcessingActive(token);
     return segments;
   }
 
-  generateToolpath(segments, bounds) {
+  async generateToolpath(token, segments, bounds, onProgress) {
     if (!segments.length) {
+      if (typeof onProgress === "function") {
+        onProgress(1);
+      }
+      this.optimizationNotice = "";
       return {
         gcode: "",
         draws: [],
@@ -391,7 +780,7 @@ class SvgToGcodeTool {
     const travelRate = this.getNumber("travelRateInput", feedRate);
     const penDownZ = this.getNumber("penDownInput", 0);
     const penUpZ = this.getNumber("penUpInput", 2);
-    const preventZhop = this.getNumber("preventZhopInput", 3);
+    const preventZhop = Math.max(0, this.getNumber("preventZhopInput", 3));
     const startX = this.getNumber("startXInput", 0);
     const startY = this.getNumber("startYInput", 0);
     const optimize = document.getElementById("optimizeInput").checked;
@@ -410,9 +799,36 @@ class SvgToGcodeTool {
 
     generator.beginProgram();
 
-    const orderedSegments = optimize
-      ? GCodeGenerator.optimizeLineOrder(segments, startX, startY)
-      : [...segments];
+    let orderedSegments = optimize ? segments : [...segments];
+    let optimizationAborted = false;
+
+    const optimizationWeight = optimize ? 0.3 : 0;
+    const drawingWeight = 1 - optimizationWeight;
+
+    if (optimize) {
+      const result = await this.optimizeSegments(
+        token,
+        segments,
+        startX,
+        startY,
+        (fraction) => {
+          if (typeof onProgress === "function") {
+            const clamped = Math.max(0, Math.min(1, fraction || 0));
+            onProgress(clamped * optimizationWeight);
+          }
+        }
+      );
+
+      if (result && Array.isArray(result.segments)) {
+        orderedSegments = result.segments;
+      } else if (result && result.aborted) {
+        optimizationAborted = true;
+      }
+    }
+
+    if (optimizationWeight > 0 && typeof onProgress === "function") {
+      onProgress(Math.min(1, optimizationWeight));
+    }
 
     const draws = [];
     const travels = [];
@@ -425,7 +841,10 @@ class SvgToGcodeTool {
     let currentY = startY;
     let penIsDown = false;
 
-    orderedSegments.forEach((segment) => {
+    const totalSegments = Math.max(1, orderedSegments.length);
+    let processed = 0;
+
+    for (const segment of orderedSegments) {
       const distanceToStart = this.distance(
         { x: currentX, y: currentY },
         { x: segment.x1, y: segment.y1 }
@@ -489,7 +908,17 @@ class SvgToGcodeTool {
 
       currentX = segment.x2;
       currentY = segment.y2;
-    });
+
+      processed += 1;
+      if (processed % YIELD_CHECK_INTERVAL === 0) {
+        await this.yieldProcessing(token);
+        if (typeof onProgress === "function") {
+          const fraction = processed / totalSegments;
+          const progress = optimizationWeight + fraction * drawingWeight;
+          onProgress(Math.min(1, progress));
+        }
+      }
+    }
 
     if (penIsDown) {
       penUpEvents.push({ x: currentX, y: currentY });
@@ -497,6 +926,17 @@ class SvgToGcodeTool {
     }
     generator.ensurePenUp({ force: true, feedRate: travelRate });
     generator.finishProgram();
+
+    if (typeof onProgress === "function") {
+      onProgress(1);
+    }
+
+    this.assertProcessingActive(token);
+    if (optimizationAborted) {
+      this.optimizationNotice = "Optimization paused early to keep things responsive.";
+    } else {
+      this.optimizationNotice = "";
+    }
 
     return {
       gcode: generator.toString(),
@@ -509,23 +949,101 @@ class SvgToGcodeTool {
     };
   }
 
-  renderPreview(toolpath, bounds) {
-    while (this.drawGroup.firstChild) {
-      this.drawGroup.removeChild(this.drawGroup.firstChild);
+  async optimizeSegments(token, segments, startX, startY, onProgress) {
+    if (!Array.isArray(segments) || segments.length === 0) {
+      if (typeof onProgress === "function") onProgress(1);
+      return { segments: [] };
     }
-    while (this.travelGroup.firstChild) {
-      this.travelGroup.removeChild(this.travelGroup.firstChild);
-    }
-    if (this.penUpGroup) {
-      while (this.penUpGroup.firstChild) {
-        this.penUpGroup.removeChild(this.penUpGroup.firstChild);
+
+    const remaining = segments.map((segment) => ({ ...segment }));
+    const optimized = [];
+    let currentX = startX;
+    let currentY = startY;
+
+    const total = Math.max(1, remaining.length);
+    let processed = 0;
+
+    const report = () => {
+      if (typeof onProgress === "function") {
+        onProgress(Math.min(1, processed / total));
+      }
+    };
+
+    report();
+
+    while (remaining.length > 0) {
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      let bestReversed = false;
+
+      for (let i = 0; i < remaining.length; i++) {
+        const line = remaining[i];
+        if (!line) continue;
+        const distToStart = GCodeGenerator.distance(
+          currentX,
+          currentY,
+          line.x1,
+          line.y1
+        );
+        if (distToStart < bestDistance) {
+          bestDistance = distToStart;
+          bestIndex = i;
+          bestReversed = false;
+        }
+
+        const distToEnd = GCodeGenerator.distance(
+          currentX,
+          currentY,
+          line.x2,
+          line.y2
+        );
+        if (distToEnd < bestDistance) {
+          bestDistance = distToEnd;
+          bestIndex = i;
+          bestReversed = true;
+        }
+      }
+
+      const bestLine = remaining.splice(bestIndex, 1)[0];
+      if (!bestLine) continue;
+
+      if (bestReversed) {
+        const reversed = {
+          ...bestLine,
+          x1: bestLine.x2,
+          y1: bestLine.y2,
+          x2: bestLine.x1,
+          y2: bestLine.y1,
+        };
+        optimized.push(reversed);
+        currentX = reversed.x2;
+        currentY = reversed.y2;
+      } else {
+        optimized.push(bestLine);
+        currentX = bestLine.x2;
+        currentY = bestLine.y2;
+      }
+
+      processed += 1;
+
+      if (processed % YIELD_CHECK_INTERVAL === 0) {
+        await this.yieldProcessing(token);
+        report();
       }
     }
-    if (this.penDownGroup) {
-      while (this.penDownGroup.firstChild) {
-        this.penDownGroup.removeChild(this.penDownGroup.firstChild);
-      }
-    }
+
+    processed = total;
+    report();
+
+    this.assertProcessingActive(token);
+    return { segments: optimized };
+  }
+
+  async renderPreview(token, toolpath, bounds, onProgress) {
+    if (this.drawGroup) this.drawGroup.textContent = "";
+    if (this.travelGroup) this.travelGroup.textContent = "";
+    if (this.penUpGroup) this.penUpGroup.textContent = "";
+    if (this.penDownGroup) this.penDownGroup.textContent = "";
 
     const viewBox = `${Math.floor(bounds.minX)} ${Math.floor(
       bounds.minY
@@ -534,39 +1052,93 @@ class SvgToGcodeTool {
     )}`;
     this.previewSvg.setAttribute("viewBox", viewBox);
 
+    const travels = toolpath.travels || [];
+    const draws = toolpath.draws || [];
+    const penUpEvents = toolpath.penUpEvents || [];
+    const penDownEvents = toolpath.penDownEvents || [];
+
+    const totalItems = Math.max(
+      1,
+      travels.length + draws.length + penUpEvents.length + penDownEvents.length
+    );
+    let processed = 0;
+
+    const report = () => {
+      if (typeof onProgress === "function") {
+        onProgress(Math.min(1, processed / totalItems));
+      }
+    };
+
+    report();
+
     const arrowSize = this.computeArrowSize(bounds);
 
-    toolpath.travels.forEach((segment) => {
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", segment[0].x);
-      line.setAttribute("y1", segment[0].y);
-      line.setAttribute("x2", segment[1].x);
-      line.setAttribute("y2", segment[1].y);
-      this.travelGroup.appendChild(line);
-    });
-
-    toolpath.draws.forEach((segment) => {
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", segment[0].x);
-      line.setAttribute("y1", segment[0].y);
-      line.setAttribute("x2", segment[1].x);
-      line.setAttribute("y2", segment[1].y);
-      this.drawGroup.appendChild(line);
-    });
-
-    const penUpEvents = toolpath.penUpEvents || [];
-    if (this.penUpGroup) {
-      penUpEvents.forEach((point) => {
-        this.addArrowMarker(this.penUpGroup, point, "up", arrowSize);
-      });
+    if (this.travelGroup && travels.length) {
+      const travelFragment = document.createDocumentFragment();
+      for (const segment of travels) {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", segment[0].x);
+        line.setAttribute("y1", segment[0].y);
+        line.setAttribute("x2", segment[1].x);
+        line.setAttribute("y2", segment[1].y);
+        travelFragment.appendChild(line);
+        processed += 1;
+        if (processed % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
+      }
+      this.travelGroup.appendChild(travelFragment);
     }
 
-    const penDownEvents = toolpath.penDownEvents || [];
-    if (this.penDownGroup) {
-      penDownEvents.forEach((point) => {
-        this.addArrowMarker(this.penDownGroup, point, "down", arrowSize);
-      });
+    if (this.drawGroup && draws.length) {
+      const drawFragment = document.createDocumentFragment();
+      for (const segment of draws) {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", segment[0].x);
+        line.setAttribute("y1", segment[0].y);
+        line.setAttribute("x2", segment[1].x);
+        line.setAttribute("y2", segment[1].y);
+        drawFragment.appendChild(line);
+        processed += 1;
+        if (processed % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
+      }
+      this.drawGroup.appendChild(drawFragment);
     }
+
+    if (this.penUpGroup && penUpEvents.length) {
+      const penUpFragment = document.createDocumentFragment();
+      for (const point of penUpEvents) {
+        this.addArrowMarker(penUpFragment, point, "up", arrowSize);
+        processed += 1;
+        if (processed % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
+      }
+      this.penUpGroup.appendChild(penUpFragment);
+    }
+
+    if (this.penDownGroup && penDownEvents.length) {
+      const penDownFragment = document.createDocumentFragment();
+      for (const point of penDownEvents) {
+        this.addArrowMarker(penDownFragment, point, "down", arrowSize);
+        processed += 1;
+        if (processed % YIELD_CHECK_INTERVAL === 0) {
+          await this.yieldProcessing(token);
+          report();
+        }
+      }
+      this.penDownGroup.appendChild(penDownFragment);
+    }
+
+    processed = totalItems;
+    report();
+
+    this.assertProcessingActive(token);
   }
 
   computeArrowSize(bounds) {
@@ -736,10 +1308,27 @@ class SvgToGcodeTool {
   }
 
   showStatus(message, type = "info") {
-    this.status.textContent = message;
+    if (!this.status) return;
+
+    const text = message || "";
+    if (this.statusMessageEl) {
+      this.statusMessageEl.textContent = text;
+    } else {
+      this.status.textContent = text;
+    }
+
+    if (this.statusProgressEl) {
+      this.statusProgressEl.style.display = "none";
+      if (this.statusProgressBar) {
+        this.statusProgressBar.style.width = "0%";
+      }
+    }
+
     this.status.className = "status-notification";
     this.status.classList.add("show");
-    this.status.classList.add(type);
+    if (type) {
+      this.status.classList.add(type);
+    }
 
     clearTimeout(this.statusTimer);
     this.statusTimer = setTimeout(() => {
@@ -747,7 +1336,7 @@ class SvgToGcodeTool {
     }, 2500);
   }
 
-  convertPath(element, segmentLengthSvg) {
+  async convertPath(token, element, segmentLengthSvg) {
     const path = element;
     const matrix = this.getTransformMatrix(path);
 
@@ -788,6 +1377,10 @@ class SvgToGcodeTool {
         current.push(transformed);
       }
       previousPoint = transformed;
+
+      if (i % YIELD_CHECK_INTERVAL === 0) {
+        await this.yieldProcessing(token);
+      }
     }
 
     if (current.length >= 2) {
