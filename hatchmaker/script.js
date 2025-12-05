@@ -15,6 +15,7 @@ class PenPlotterConverter {
         group: document.getElementById("pen-plotter-lines-C"),
         svgContent: "",
         lineCount: 0,
+        lineSegments: [],
         color: "#00FFFF",
         renderColor: "#00FFFF",
       },
@@ -23,6 +24,7 @@ class PenPlotterConverter {
         group: document.getElementById("pen-plotter-lines-M"),
         svgContent: "",
         lineCount: 0,
+        lineSegments: [],
         color: "#FF00FF",
         renderColor: "#FF00FF",
       },
@@ -31,6 +33,7 @@ class PenPlotterConverter {
         group: document.getElementById("pen-plotter-lines-Y"),
         svgContent: "",
         lineCount: 0,
+        lineSegments: [],
         color: "#FFFF00",
         renderColor: "#FFFF00",
       },
@@ -39,10 +42,14 @@ class PenPlotterConverter {
         group: document.getElementById("pen-plotter-lines-K"),
         svgContent: "",
         lineCount: 0,
+        lineSegments: [],
         color: "#000000",
         renderColor: "#000000",
       },
     };
+
+    // Render order from top to bottom (last item is bottom-most)
+    this.channelOrder = ["C", "M", "Y", "K"];
 
     // Chunked processing state
     this.isProcessing = false;
@@ -69,6 +76,8 @@ class PenPlotterConverter {
     });
 
     this.setupEventListeners();
+    this.renderChannelOrderControls();
+    this.applyChannelOrder();
     this.updateSvgSize();
     this.initializeChannelColors();
     // Initial auto-computation
@@ -98,6 +107,15 @@ class PenPlotterConverter {
     });
     this.setupNumberInput("penDiameterValue", () => {
       this.autoComputeSpacingParameters();
+    });
+    this.setupNumberInput("penDownZValue", () => {
+      this.showStatus("Pen down Z updated for next G-code export.", "complete");
+    });
+    this.setupNumberInput("penUpZValue", () => {
+      this.showStatus("Pen up Z updated for next G-code export.", "complete");
+    });
+    this.setupNumberInput("preventZhopValue", () => {
+      this.showStatus("Prevent Z-hop threshold updated.", "complete");
     });
     this.setupNumberInput("lineAngleValue", () => {
       this.debouncedProcessImage();
@@ -135,6 +153,7 @@ class PenPlotterConverter {
         .getElementById(`renderColor${channel}`)
         .addEventListener("change", (e) => {
           this.updateChannelRenderColor(channel, e.target.value);
+          this.renderChannelOrderControls();
         });
 
       // White point controls - sync slider and number input
@@ -149,6 +168,9 @@ class PenPlotterConverter {
           this.debouncedProcessImage(channel);
         });
     });
+
+    // Channel order controls
+    this.setupChannelOrderControls();
 
     // Setup zoom controls
     this.syncInputs("canvasZoom", "canvasZoomValue");
@@ -322,10 +344,194 @@ class PenPlotterConverter {
       channelSvg.style.display = isEnabled ? "block" : "none";
 
       // Update download buttons
-      document.getElementById(`download${channel}Btn`).disabled = !isEnabled;
-      document.getElementById(`download${channel}GcodeBtn`).disabled =
-        !isEnabled;
+      const downloadBtn = document.getElementById(`download${channel}Btn`);
+      if (downloadBtn) {
+        downloadBtn.disabled = !isEnabled;
+      }
+
+      // Some views don't expose per-channel G-code buttons; guard to avoid null deref
+      const downloadGcodeBtn = document.getElementById(
+        `download${channel}GcodeBtn`
+      );
+      if (downloadGcodeBtn) {
+        downloadGcodeBtn.disabled = !isEnabled;
+        downloadGcodeBtn.classList.toggle("disabled", !isEnabled);
+      }
     });
+
+    this.updateGcodeButtonStates();
+  }
+
+  updateGcodeButtonStates() {
+    const totalLines = this.getEnabledChannelsInOrder().reduce((sum, channel) => {
+      return sum + (this.channels[channel].lineCount || 0);
+    }, 0);
+    const hasLines = totalLines > 0;
+
+    const gcodeTrigger = document.getElementById("gcodeDownloadBtn");
+    if (gcodeTrigger) {
+      gcodeTrigger.disabled = !hasLines;
+    }
+
+    const combinedLink = document.getElementById("downloadGcodeCombinedBtn");
+    if (combinedLink) {
+      combinedLink.classList.toggle("disabled", !hasLines);
+    }
+
+    // Per-channel links get disabled via updateChannelVisibility; keep them in sync when no lines exist
+    ["C", "M", "Y", "K"].forEach((channel) => {
+      const link = document.getElementById(`download${channel}GcodeBtn`);
+      if (link) {
+        const channelEnabled =
+          document.getElementById(`enable${channel}`)?.checked;
+        const shouldDisable = !hasLines || !channelEnabled;
+        link.classList.toggle("disabled", shouldDisable);
+        link.disabled = shouldDisable;
+      }
+    });
+  }
+
+  getEnabledChannelsInOrder() {
+    const enabledSet = new Set(
+      ["C", "M", "Y", "K"].filter(
+        (channel) => document.getElementById(`enable${channel}`).checked
+      )
+    );
+
+    // Respect the user-defined order, append any enabled channels that were missing
+    const ordered = this.channelOrder.filter((channel) =>
+      enabledSet.has(channel)
+    );
+    ["C", "M", "Y", "K"].forEach((channel) => {
+      if (enabledSet.has(channel) && !ordered.includes(channel)) {
+        ordered.push(channel);
+      }
+    });
+
+    return ordered;
+  }
+
+  sanitizeChannelOrder(order) {
+    const allowed = ["C", "M", "Y", "K"];
+    const deduped = [];
+
+    (order || []).forEach((channel) => {
+      if (allowed.includes(channel) && !deduped.includes(channel)) {
+        deduped.push(channel);
+      }
+    });
+
+    // Append any missing channels
+    allowed.forEach((channel) => {
+      if (!deduped.includes(channel)) {
+        deduped.push(channel);
+      }
+    });
+
+    // Keep K as the base layer to preserve the paper background
+    const filtered = deduped.filter((channel) => channel !== "K");
+    filtered.push("K");
+    return filtered;
+  }
+
+  applyChannelOrder() {
+    this.channelOrder = this.sanitizeChannelOrder(this.channelOrder);
+
+    // Highest z-index should be first item (top of stack)
+    this.channelOrder.forEach((channel, index) => {
+      const svg = this.channels[channel]?.svg;
+      if (svg) {
+        svg.style.zIndex = this.channelOrder.length - index;
+      }
+    });
+  }
+
+  renderChannelOrderControls() {
+    const list = document.getElementById("channelOrderList");
+    if (!list) return;
+
+    const names = {
+      C: "Cyan",
+      M: "Magenta",
+      Y: "Yellow",
+      K: "Black",
+    };
+    const maxMovableIndex = this.channelOrder.length - 2; // Last slot reserved for K
+
+    list.innerHTML = "";
+
+    this.channelOrder.forEach((channel, index) => {
+      const color =
+        this.channels[channel]?.renderColor ||
+        this.channels[channel]?.color ||
+        "#000";
+      const isBlackChannel = channel === "K";
+      const upDisabled = isBlackChannel || index === 0;
+      const downDisabled = isBlackChannel || index >= maxMovableIndex;
+
+      const row = document.createElement("div");
+      row.className = "channel-order-row";
+      row.dataset.channel = channel;
+      row.innerHTML = `
+        <div class="channel-order-label">
+          <span class="channel-order-swatch" style="background: ${color};"></span>
+          <span>${channel} (${names[channel] || channel})</span>
+          ${
+            isBlackChannel
+              ? '<span class="channel-order-note">Paper/base</span>'
+              : ""
+          }
+        </div>
+        <div class="channel-order-buttons">
+          <button type="button" class="reorder-btn" data-channel="${channel}" data-direction="up" ${
+        upDisabled ? "disabled" : ""
+      }>↑</button>
+          <button type="button" class="reorder-btn" data-channel="${channel}" data-direction="down" ${
+        downDisabled ? "disabled" : ""
+      }>↓</button>
+        </div>
+      `;
+
+      list.appendChild(row);
+    });
+  }
+
+  setupChannelOrderControls() {
+    const list = document.getElementById("channelOrderList");
+    if (!list) return;
+
+    list.addEventListener("click", (e) => {
+      const button = e.target.closest(".reorder-btn");
+      if (!button) return;
+
+      const channel = button.dataset.channel;
+      const direction = button.dataset.direction === "up" ? -1 : 1;
+      this.moveChannel(channel, direction);
+    });
+  }
+
+  moveChannel(channel, delta) {
+    if (channel === "K") {
+      // Keep black at the bottom to avoid covering other channels
+      return;
+    }
+
+    const currentIndex = this.channelOrder.indexOf(channel);
+    if (currentIndex === -1) return;
+
+    const maxIndex = this.channelOrder.length - 2; // Prevent moving past K
+    const targetIndex = currentIndex + delta;
+    if (targetIndex < 0 || targetIndex > maxIndex) return;
+
+    const newOrder = [...this.channelOrder];
+    [newOrder[currentIndex], newOrder[targetIndex]] = [
+      newOrder[targetIndex],
+      newOrder[currentIndex],
+    ];
+
+    this.channelOrder = this.sanitizeChannelOrder(newOrder);
+    this.applyChannelOrder();
+    this.renderChannelOrderControls();
   }
 
   updateChannelRenderColor(channel, newColor) {
@@ -368,6 +574,10 @@ class PenPlotterConverter {
       canvasWidth: document.getElementById("canvasWidthValue").value + "mm",
       canvasHeight: document.getElementById("canvasHeightValue").value + "mm",
       penDiameter: document.getElementById("penDiameterValue").value + "mm",
+      penDownZ: document.getElementById("penDownZValue").value + "mm",
+      penUpZ: document.getElementById("penUpZValue").value + "mm",
+      preventZhop:
+        document.getElementById("preventZhopValue").value + "mm threshold",
       lineAngle: document.getElementById("lineAngleValue").value + "°",
       sectionWidth: document.getElementById("sectionWidthValue").value + "mm",
       lineSpacing: document.getElementById("lineSpacingValue").value + "mm",
@@ -385,9 +595,9 @@ class PenPlotterConverter {
     };
 
     // Get enabled channels
-    const enabledChannels = ["C", "M", "Y", "K"].filter(
-      (channel) => document.getElementById(`enable${channel}`).checked
-    );
+    const enabledChannels = this.getEnabledChannelsInOrder();
+
+    params.channelOrder = this.channelOrder.join(" > ");
 
     return { params, enabledChannels };
   }
@@ -399,9 +609,7 @@ class PenPlotterConverter {
     );
 
     // Get enabled channels count
-    const enabledChannels = ["C", "M", "Y", "K"].filter(
-      (channel) => document.getElementById(`enable${channel}`).checked
-    );
+    const enabledChannels = this.getEnabledChannelsInOrder();
     const channelCount = enabledChannels.length;
 
     if (channelCount === 0) {
@@ -445,9 +653,7 @@ class PenPlotterConverter {
     );
 
     // Get enabled channels count
-    const enabledChannels = ["C", "M", "Y", "K"].filter(
-      (channel) => document.getElementById(`enable${channel}`).checked
-    );
+    const enabledChannels = this.getEnabledChannelsInOrder();
     const channelCount = enabledChannels.length;
 
     if (channelCount === 0) return;
@@ -626,9 +832,7 @@ class PenPlotterConverter {
 
     try {
       // Get enabled channels
-      const enabledChannels = ["C", "M", "Y", "K"].filter(
-        (channel) => document.getElementById(`enable${channel}`).checked
-      );
+      const enabledChannels = this.getEnabledChannelsInOrder();
 
       // Clear all channels first
       enabledChannels.forEach((channel) => {
@@ -697,6 +901,7 @@ class PenPlotterConverter {
     // Clear channel data
     channelData.group.innerHTML = "";
     channelData.lineCount = 0;
+    channelData.lineSegments = [];
 
     // Create channel-specific intensity map using CMYK conversion
     const intensityMap = this.createChannelIntensityMap(
@@ -862,9 +1067,7 @@ class PenPlotterConverter {
 
     try {
       // Get enabled channels to find the index
-      const enabledChannels = ["C", "M", "Y", "K"].filter(
-        (channel) => document.getElementById(`enable${channel}`).checked
-      );
+      const enabledChannels = this.getEnabledChannelsInOrder();
 
       const channelIndex = enabledChannels.indexOf(targetChannel);
       if (channelIndex === -1) {
@@ -886,12 +1089,10 @@ class PenPlotterConverter {
 
       if (!this.processingCancelled) {
         // Update line count display (sum of all channels)
-        const totalLines = ["C", "M", "Y", "K"].reduce((sum, channel) => {
-          if (document.getElementById(`enable${channel}`).checked) {
-            return sum + (this.channels[channel].lineCount || 0);
-          }
-          return sum;
-        }, 0);
+        const totalLines = this.getEnabledChannelsInOrder().reduce(
+          (sum, channel) => sum + (this.channels[channel].lineCount || 0),
+          0
+        );
         document.getElementById("lineCount").textContent =
           totalLines.toLocaleString();
 
@@ -1093,6 +1294,15 @@ class PenPlotterConverter {
 
       // Draw and output each segment for this line
       pathSegments.forEach((segment) => {
+        // Keep raw coordinates for G-code ordering
+        const rawSegment = {
+          x1: segment.startX,
+          y1: segment.startY,
+          x2: segment.endX,
+          y2: segment.endY,
+          lineOrder: lineIndex,
+        };
+
         // Validate coordinates before adding to SVG
         const x1 = isFinite(segment.startX) ? segment.startX.toFixed(3) : "0";
         const y1 = isFinite(segment.startY) ? segment.startY.toFixed(3) : "0";
@@ -1126,6 +1336,7 @@ class PenPlotterConverter {
             this.channels[channel].renderColor
           );
           this.channels[channel].group.appendChild(lineElement);
+          this.channels[channel].lineSegments.push(rawSegment);
 
           if (typeof this.channels[channel].lineCount === "number") {
             this.channels[channel].lineCount += 1;
@@ -1263,14 +1474,10 @@ class PenPlotterConverter {
 
   downloadSVG() {
     // Download combined SVG with all enabled channels
-    const enabledChannels = ["C", "M", "Y", "K"].filter(
-      (channel) => document.getElementById(`enable${channel}`).checked
-    );
+    const { params, enabledChannels } = this.generateMetadataComment();
 
     if (enabledChannels.length === 0) return;
 
-    const { params, enabledChannels: channels } =
-      this.generateMetadataComment();
     const canvasWidthMm = parseFloat(
       document.getElementById("canvasWidthValue").value
     );
@@ -1286,7 +1493,7 @@ class PenPlotterConverter {
 ${Object.entries(params)
   .map(([key, value]) => `<!-- ${key}: ${value} -->`)
   .join("\n")}
-<!-- Enabled channels: ${channels.join(", ")} -->
+<!-- Enabled channels: ${enabledChannels.join(", ")} -->
 <svg width="${canvasWidthMm}mm" height="${canvasHeightMm}mm" 
      viewBox="0 0 ${width} ${height}" 
      version="1.1" 
@@ -1296,7 +1503,8 @@ ${Object.entries(params)
 `;
 
     // Add each enabled channel's lines
-    enabledChannels.forEach((channel) => {
+    const exportOrder = [...enabledChannels].reverse(); // Draw bottom-first so top layers render last
+    exportOrder.forEach((channel) => {
       const channelData = this.channels[channel];
       combinedSvg += `  <g id="pen-plotter-lines-${channel}" stroke="${channelData.color}" fill="none" stroke-linecap="round" stroke-linejoin="round">\n`;
 
@@ -1352,6 +1560,187 @@ ${Object.entries(params)
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  downloadTextFile(content, filename) {
+    if (!content || !filename) return;
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  getChannelSegmentsInMm(channel) {
+    const channelData = this.channels[channel];
+    if (!channelData || !channelData.group) return [];
+
+    const pxToMm = 1 / this.pixelsPerMm;
+    const sourceSegments =
+      (channelData.lineSegments && channelData.lineSegments.length > 0
+        ? channelData.lineSegments
+        : Array.from(channelData.group.querySelectorAll("line")).map(
+            (line) => ({
+              x1: parseFloat(line.getAttribute("x1")),
+              y1: parseFloat(line.getAttribute("y1")),
+              x2: parseFloat(line.getAttribute("x2")),
+              y2: parseFloat(line.getAttribute("y2")),
+            })
+          )) || [];
+
+    return sourceSegments
+      .map((segment) => {
+        const { x1, y1, x2, y2, lineOrder } = segment || {};
+        if (
+          !Number.isFinite(x1) ||
+          !Number.isFinite(y1) ||
+          !Number.isFinite(x2) ||
+          !Number.isFinite(y2)
+        ) {
+          return null;
+        }
+
+        return {
+          x1: x1 * pxToMm,
+          y1: y1 * pxToMm,
+          x2: x2 * pxToMm,
+          y2: y2 * pxToMm,
+          lineOrder:
+            Number.isFinite(lineOrder) && lineOrder >= 0
+              ? Math.floor(lineOrder)
+              : null,
+          comment: `Channel ${channel}`,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  buildGcodeForChannels(channels) {
+    if (typeof GCodeGenerator === "undefined") {
+      alert("G-code generator not available.");
+      return "";
+    }
+
+    const canvasWidthMm = parseFloat(
+      document.getElementById("canvasWidthValue").value
+    );
+    const canvasHeightMm = parseFloat(
+      document.getElementById("canvasHeightValue").value
+    );
+    const penDownZ = parseFloat(
+      document.getElementById("penDownZValue").value
+    );
+    const penUpZ = parseFloat(document.getElementById("penUpZValue").value);
+    const preventZhop = parseFloat(
+      document.getElementById("preventZhopValue").value
+    );
+
+    const generator = new GCodeGenerator({
+      feedRate: 1500,
+      penDownZ: Number.isFinite(penDownZ) ? penDownZ : 0,
+      penUpZ: Number.isFinite(penUpZ) ? penUpZ : 2,
+      preventZhop: Number.isFinite(preventZhop) ? preventZhop : 0.5,
+      toolName: "HatchMaker",
+      canvasWidth: canvasWidthMm,
+      canvasHeight: canvasHeightMm,
+    });
+
+    generator.beginProgram({
+      headerLines: [`Channels: ${channels.join(", ")}`],
+    });
+
+    channels.forEach((channel) => {
+      const segments = this.optimizeSegmentsNearest(
+        this.getChannelSegmentsInMm(channel),
+        generator.currentX,
+        generator.currentY
+      );
+      if (!segments.length) return;
+      generator.addComment(`--- Channel ${channel} ---`);
+      generator.renderLineSegments(segments, {
+        optimize: false, // already optimized
+        startX: generator.currentX,
+        startY: generator.currentY,
+        preventZhop: generator.options.preventZhop,
+      });
+      generator.ensurePenUp({ force: true });
+    });
+
+    generator.finishProgram();
+    return generator.toString();
+  }
+
+  downloadCombinedGcode() {
+    const channels = this.getEnabledChannelsInOrder();
+    if (!channels.length) {
+      alert("Enable at least one channel before exporting G-code.");
+      return;
+    }
+    const gcode = this.buildGcodeForChannels(channels);
+    if (!gcode || !gcode.trim()) {
+      alert("No G-code to export yet. Generate lines first.");
+      return;
+    }
+
+    const filename = `${this.originalFilename || "hatch"}-combined.gcode`;
+    this.downloadTextFile(gcode, filename);
+  }
+
+  downloadChannelGcode(channel) {
+    if (!document.getElementById(`enable${channel}`)?.checked) return;
+    const gcode = this.buildGcodeForChannels([channel]);
+    if (!gcode || !gcode.trim()) {
+      alert(`No lines found for channel ${channel}.`);
+      return;
+    }
+
+    const filename = `${this.originalFilename || "hatch"}-${channel}.gcode`;
+    this.downloadTextFile(gcode, filename);
+  }
+
+  optimizeSegmentsNearest(segments, startX = 0, startY = 0) {
+    if (!Array.isArray(segments) || !segments.length) return [];
+
+    // If the generator's optimizer is available, use it (it can reverse segments when beneficial)
+    if (
+      typeof GCodeGenerator !== "undefined" &&
+      typeof GCodeGenerator.optimizeLineOrder === "function"
+    ) {
+      return GCodeGenerator.optimizeLineOrder(segments, startX, startY);
+    }
+
+    // Fallback: simple nearest-neighbor without reversal
+    const remaining = [...segments];
+    const ordered = [];
+    let cx = startX;
+    let cy = startY;
+
+    while (remaining.length) {
+      let bestIdx = 0;
+      let bestDist = Infinity;
+
+      for (let i = 0; i < remaining.length; i++) {
+        const { x1, y1 } = remaining[i];
+        const dx = x1 - cx;
+        const dy = y1 - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx = i;
+        }
+      }
+
+      const next = remaining.splice(bestIdx, 1)[0];
+      ordered.push(next);
+      cx = next.x2;
+      cy = next.y2;
+    }
+
+    return ordered;
   }
 
   /**
@@ -1436,6 +1825,9 @@ ${Object.entries(params)
 
       // Pen settings
       penDiameter: document.getElementById("penDiameterValue").value,
+      penDownZ: document.getElementById("penDownZValue").value,
+      penUpZ: document.getElementById("penUpZValue").value,
+      preventZhop: document.getElementById("preventZhopValue").value,
 
       // CMYK settings
       enableC: document.getElementById("enableC").checked,
@@ -1464,6 +1856,7 @@ ${Object.entries(params)
       maxMergeDistance: document.getElementById("maxMergeDistanceValue").value,
       maxLinesPerChannel: document.getElementById("maxLinesPerChannelValue")
         .value,
+      channelOrder: this.channelOrder,
     };
   }
 
@@ -1484,6 +1877,12 @@ ${Object.entries(params)
     // Apply pen settings
     document.getElementById("penDiameterValue").value =
       params.penDiameter || "0.5";
+    document.getElementById("penDownZValue").value =
+      params.penDownZ !== undefined ? params.penDownZ : "0";
+    document.getElementById("penUpZValue").value =
+      params.penUpZ !== undefined ? params.penUpZ : "2";
+    document.getElementById("preventZhopValue").value =
+      params.preventZhop !== undefined ? params.preventZhop : "0.5";
 
     // Apply CMYK settings
     document.getElementById("enableC").checked = params.enableC || false;
@@ -1530,6 +1929,13 @@ ${Object.entries(params)
     document.getElementById("maxLinesPerChannelValue").value =
       params.maxLinesPerChannel || "5";
 
+    // Apply channel order (top -> bottom), keeping K at the base
+    this.channelOrder = this.sanitizeChannelOrder(
+      params.channelOrder || ["C", "M", "Y", "K"]
+    );
+    this.applyChannelOrder();
+    this.renderChannelOrderControls();
+
     // Load the saved image
     if (config.base64Image) {
       const img = new Image();
@@ -1561,6 +1967,7 @@ ${Object.entries(params)
       const color = document.getElementById(`renderColor${channel}`).value;
       this.updateChannelRenderColor(channel, color);
     });
+    this.renderChannelOrderControls();
   }
 
   /**
@@ -1632,6 +2039,27 @@ ${Object.entries(params)
       this.downloadChannelSVG("K");
     });
 
+    // G-code dropdown items
+    const downloadGcodeCombined =
+      document.getElementById("downloadGcodeCombinedBtn");
+    if (downloadGcodeCombined) {
+      downloadGcodeCombined.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (downloadGcodeCombined.classList.contains("disabled")) return;
+        this.downloadCombinedGcode();
+      });
+    }
+
+    ["C", "M", "Y", "K"].forEach((channel) => {
+      const link = document.getElementById(`download${channel}GcodeBtn`);
+      if (link) {
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (link.classList.contains("disabled")) return;
+          this.downloadChannelGcode(channel);
+        });
+      }
+    });
   }
 }
 
